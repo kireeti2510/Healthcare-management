@@ -4,13 +4,14 @@ import './App.css'
 const STORAGE_KEY = 'healthcare_ui_db_v2'
 const MAX_LOGIN_ATTEMPTS = 5
 const LOGIN_LOCK_MINUTES = 2
+const MEDICAL_RETENTION_YEARS = 7
 
 const ROLE_TABS = {
-  PATIENT: ['profile', 'appointments', 'prescriptions'],
-  RECEPTIONIST: ['patients', 'appointments'],
-  CLINICIAN: ['appointments', 'prescriptions'],
+  PATIENT: ['profile', 'appointments', 'prescriptions', 'medicalRecords'],
+  RECEPTIONIST: ['patients', 'appointments', 'medicalRecords'],
+  CLINICIAN: ['appointments', 'prescriptions', 'medicalRecords'],
   PHARMACIST: ['prescriptions'],
-  CLINIC_ADMIN: ['users', 'patients', 'appointments', 'prescriptions', 'audit'],
+  CLINIC_ADMIN: ['users', 'patients', 'appointments', 'prescriptions', 'medicalRecords', 'audit'],
 }
 
 const TAB_LABELS = {
@@ -20,6 +21,7 @@ const TAB_LABELS = {
   patients: 'Patients',
   appointments: 'Appointments',
   prescriptions: 'Prescriptions',
+  medicalRecords: 'Medical Records',
   audit: 'Audit',
 }
 
@@ -28,6 +30,7 @@ const initialDb = {
   patients: [],
   appointments: [],
   prescriptions: [],
+  medicalRecords: [],
   audit: [],
 }
 
@@ -249,6 +252,7 @@ function loadDb() {
       patients: parsed.patients || [],
       appointments: parsed.appointments || [],
       prescriptions: parsed.prescriptions || [],
+      medicalRecords: parsed.medicalRecords || [],
       audit: parsed.audit || [],
     }
     return seedDb(hydrated)
@@ -306,6 +310,17 @@ function App() {
     appointmentId: '',
     overrideReason: '',
   })
+
+  const [medicalRecordForm, setMedicalRecordForm] = useState({
+    patientId: '',
+  })
+
+  const [medicalNoteForm, setMedicalNoteForm] = useState({
+    recordId: '',
+    note: '',
+  })
+
+  const [archiveReasonByRecordId, setArchiveReasonByRecordId] = useState({})
 
   const usersById = useMemo(() => {
     const map = new Map()
@@ -386,6 +401,17 @@ function App() {
 
   function can(action) {
     if (!currentRole) return false
+    if (action === 'CREATE_MEDICAL_RECORD') return currentRole === 'CLINICIAN'
+    if (action === 'ADD_MEDICAL_NOTE') return currentRole === 'CLINICIAN'
+    if (action === 'ARCHIVE_MEDICAL_RECORD') return currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN'
+    if (action === 'VIEW_MEDICAL_RECORDS') {
+      return (
+        currentRole === 'PATIENT' ||
+        currentRole === 'CLINICIAN' ||
+        currentRole === 'RECEPTIONIST' ||
+        currentRole === 'CLINIC_ADMIN'
+      )
+    }
     if (currentRole === 'CLINIC_ADMIN') return true
 
     if (action === 'VIEW_PATIENT_PROFILE') return currentRole === 'PATIENT'
@@ -397,6 +423,16 @@ function App() {
     if (action === 'DISPENSE_PRESCRIPTION') return currentRole === 'PHARMACIST'
     if (action === 'VOID_PRESCRIPTION') return currentRole === 'CLINICIAN'
     return false
+  }
+
+  function getVisibleMedicalRecords() {
+    if (!can('VIEW_MEDICAL_RECORDS')) return []
+
+    if (currentRole === 'PATIENT') {
+      return db.medicalRecords.filter((r) => r.patientId === currentUserId)
+    }
+
+    return db.medicalRecords
   }
 
   function write(mutator, successText) {
@@ -654,6 +690,10 @@ function App() {
     () => getVisiblePrescriptions(),
     [db.prescriptions, db.appointments, currentRole, currentUserId],
   )
+  const visibleMedicalRecords = useMemo(
+    () => getVisibleMedicalRecords(),
+    [db.medicalRecords, currentRole, currentUserId],
+  )
 
   const selectedPatient = useMemo(() => {
     if (!can('MANAGE_PATIENTS') && !can('MANAGE_USERS')) return null
@@ -859,6 +899,97 @@ function App() {
     }, `Prescription ${action.toLowerCase()}d.`)
   }
 
+  function createMedicalRecord(event) {
+    event.preventDefault()
+    if (!can('CREATE_MEDICAL_RECORD')) {
+      notify('error', 'Only clinician can create medical records.')
+      return
+    }
+
+    const patientId = medicalRecordForm.patientId.trim()
+    if (!patientsById.has(patientId)) {
+      notify('error', 'Invalid patient ID.')
+      return
+    }
+
+    write((next) => {
+      const recordId = uid()
+      next.medicalRecords.push({
+        recordId,
+        patientId,
+        state: 'CREATED',
+        createdAt: nowStamp(),
+        updatedAt: null,
+        archivedAt: null,
+        notes: [],
+      })
+      addAudit(next, `CREATE_MEDICAL_RECORD:${recordId}`, currentUserId)
+    }, 'Medical record created.')
+
+    setMedicalRecordForm({ patientId: '' })
+  }
+
+  function addMedicalRecordNote(event) {
+    event.preventDefault()
+    if (!can('ADD_MEDICAL_NOTE')) {
+      notify('error', 'Only clinician can add encounter notes.')
+      return
+    }
+
+    const recordId = medicalNoteForm.recordId.trim()
+    const note = medicalNoteForm.note.trim()
+    if (!recordId || !note) {
+      notify('error', 'Record ID and note are required.')
+      return
+    }
+
+    write((next) => {
+      const record = next.medicalRecords.find((r) => r.recordId === recordId)
+      if (!record) throw new Error('Medical record not found.')
+      if (record.state === 'ARCHIVED') throw new Error('Cannot modify archived record.')
+
+      record.notes.push(note)
+      record.state = 'UPDATED'
+      record.updatedAt = nowStamp()
+      addAudit(next, `UPDATE_MEDICAL_RECORD:${recordId}`, currentUserId)
+    }, 'Encounter note added.')
+
+    setMedicalNoteForm({ recordId: '', note: '' })
+  }
+
+  function archiveMedicalRecord(recordId) {
+    if (!can('ARCHIVE_MEDICAL_RECORD')) {
+      notify('error', 'Only clinician/admin can archive medical records.')
+      return
+    }
+
+    const reason = (archiveReasonByRecordId[recordId] || '').trim()
+
+    write((next) => {
+      const record = next.medicalRecords.find((r) => r.recordId === recordId)
+      if (!record) throw new Error('Medical record not found.')
+      if (record.state === 'ARCHIVED') throw new Error('Record is already archived.')
+
+      const retentionUntil = new Date(record.createdAt)
+      retentionUntil.setFullYear(retentionUntil.getFullYear() + MEDICAL_RETENTION_YEARS)
+      const retentionEligible = retentionUntil <= new Date()
+      const adminNoEncounterArchive = currentRole === 'CLINIC_ADMIN' && (record.notes || []).length === 0
+      if (!retentionEligible && !adminNoEncounterArchive) {
+        throw new Error(
+          `Retention policy not met. Archive allowed on/after ${retentionUntil.toLocaleString()}.`,
+        )
+      }
+
+      record.state = 'ARCHIVED'
+      record.archivedAt = nowStamp()
+      addAudit(
+        next,
+        `ARCHIVE_MEDICAL_RECORD:${recordId}:${reason || 'NO_REASON_PROVIDED'}`,
+        currentUserId,
+      )
+    }, 'Medical record archived.')
+  }
+
   const patientRows = db.patients.map((p) => {
     const user = usersById.get(p.userId)
     return {
@@ -877,6 +1008,17 @@ function App() {
     ...r,
     appointment: db.appointments.find((a) => a.appointmentId === r.appointmentId) || null,
   }))
+
+  const medicalRecordRows = visibleMedicalRecords.map((r) => {
+    const retentionUntil = new Date(r.createdAt)
+    retentionUntil.setFullYear(retentionUntil.getFullYear() + MEDICAL_RETENTION_YEARS)
+    return {
+      ...r,
+      patientEmail: usersById.get(r.patientId)?.email || 'unknown',
+      retentionUntilIso: retentionUntil.toISOString(),
+      retentionEligible: retentionUntil <= new Date(),
+    }
+  })
 
   const ownPatient = currentRole === 'PATIENT' ? patientsById.get(currentUserId) : null
 
@@ -1476,6 +1618,121 @@ function App() {
                       </button>
                     )}
                   </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+      )}
+
+      {tab === 'medicalRecords' && can('VIEW_MEDICAL_RECORDS') && (
+        <section className="grid two">
+          <article className="panel">
+            {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+              <>
+                <h2>Medical Record Actions</h2>
+
+                {can('CREATE_MEDICAL_RECORD') && (
+                  <form onSubmit={createMedicalRecord} className="form-grid top-gap">
+                    <label className="full">
+                      Patient
+                      <select
+                        value={medicalRecordForm.patientId}
+                        onChange={(e) =>
+                          setMedicalRecordForm((f) => ({ ...f, patientId: e.target.value }))
+                        }
+                        required
+                      >
+                        <option value="">Choose patient...</option>
+                        {patientOptions.map((p) => (
+                          <option key={p.userId} value={p.userId}>
+                            {p.email} ({shortId(p.userId)})
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button type="submit">Create Record</button>
+                  </form>
+                )}
+
+                {can('ADD_MEDICAL_NOTE') && (
+                  <form onSubmit={addMedicalRecordNote} className="form-grid top-gap">
+                    <label>
+                      Record ID
+                      <input
+                        value={medicalNoteForm.recordId}
+                        onChange={(e) =>
+                          setMedicalNoteForm((f) => ({ ...f, recordId: e.target.value }))
+                        }
+                        placeholder="Paste record ID"
+                        required
+                      />
+                    </label>
+                    <label>
+                      Note
+                      <input
+                        value={medicalNoteForm.note}
+                        onChange={(e) =>
+                          setMedicalNoteForm((f) => ({ ...f, note: e.target.value }))
+                        }
+                        placeholder="Encounter note"
+                        required
+                      />
+                    </label>
+                    <button type="submit">Add Note</button>
+                  </form>
+                )}
+              </>
+            )}
+          </article>
+
+          <article className="panel">
+            <h2>Visible Medical Records ({medicalRecordRows.length})</h2>
+            <div className="appointment-list">
+              {medicalRecordRows.map((r) => (
+                <div className="appointment-card" key={r.recordId}>
+                  <p>
+                    <strong>{shortId(r.recordId)}</strong>
+                    <span className={`status ${r.state.toLowerCase()}`}>{r.state}</span>
+                  </p>
+                  <small>
+                    Record ID: {r.recordId}
+                    <button type="button" onClick={() => copyId('Record ID', r.recordId)}>
+                      Copy ID
+                    </button>
+                  </small>
+                  <small>Patient: {r.patientEmail}</small>
+                  <small>Created: {new Date(r.createdAt).toLocaleString()}</small>
+                  <small>Updated: {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '-'}</small>
+                  <small>Archived: {r.archivedAt ? new Date(r.archivedAt).toLocaleString() : '-'}</small>
+                  <small>
+                    Retention Until: {new Date(r.retentionUntilIso).toLocaleDateString()} ({r.retentionEligible ? 'Eligible' : 'Not eligible'})
+                  </small>
+                  <small>Notes: {(r.notes || []).length}</small>
+                  {(r.notes || []).length > 0 && (
+                    <ul className="tag-list">
+                      {(r.notes || []).map((n, idx) => (
+                        <li key={`${r.recordId}-${idx}`}>{n}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && r.state !== 'ARCHIVED' && (
+                    <div className="row-actions">
+                      <input
+                        value={archiveReasonByRecordId[r.recordId] || ''}
+                        onChange={(e) =>
+                          setArchiveReasonByRecordId((prev) => ({
+                            ...prev,
+                            [r.recordId]: e.target.value,
+                          }))
+                        }
+                        placeholder="Archive reason (optional)"
+                      />
+                      <button type="button" onClick={() => archiveMedicalRecord(r.recordId)}>
+                        Archive
+                      </button>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
