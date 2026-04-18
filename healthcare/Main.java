@@ -32,21 +32,25 @@ public class Main {
 
         // 2. Build dependency graph manually
         IApptRepository      apptRepo   = new ApptRepositoryImpl();
+        IWaitlistRepository  waitlistRepo = new WaitlistRepositoryImpl();
         IPatientRepository   patRepo    = new PatientRepositoryImpl();
         IPrescriptionRepository rxRepo  = new PrescriptionRepositoryImpl();
+        IMedicalRecordRepository mrRepo = new MedicalRecordRepositoryImpl();
         IAuditLogService     auditLog   = new AuditLogServiceImpl();
 
         INotificationService notifSvc   = new EmailSMSNotifService("SMTP-Client", "SMS-Gateway");
 
         IPatientService      patSvc     = new PatientServiceImpl(patRepo, auditLog);
-        IAppointmentService  apptSvc    = new AppointmentServiceImpl(apptRepo, auditLog, notifSvc);
-        IPrescriptionService rxSvc      = new PrescriptionServiceImpl(rxRepo, apptRepo, auditLog);
+        IAppointmentService  apptSvc    = new AppointmentServiceImpl(apptRepo, auditLog, notifSvc, waitlistRepo);
+        IPrescriptionService rxSvc      = new PrescriptionServiceImpl(rxRepo, apptRepo, auditLog, notifSvc);
+        IMedicalRecordService mrSvc     = new MedicalRecordServiceImpl(mrRepo, auditLog);
         ClinicAdminServiceImpl adminSvc = new ClinicAdminServiceImpl(auditLog, notifSvc);
 
         // 3. MVC Controllers
         PatientController      patCtrl  = new PatientController(patSvc);
         AppointmentController  apptCtrl = new AppointmentController(apptSvc);
         PrescriptionController rxCtrl   = new PrescriptionController(rxSvc);
+        MedicalRecordController mrCtrl  = new MedicalRecordController(mrSvc);
         AdminController        adminCtrl= new AdminController(adminSvc);
         AuthController         authCtrl = new AuthController(auditLog);
 
@@ -105,12 +109,20 @@ public class Main {
                 .orElseThrow(() -> new RuntimeException("Cancelled appointment not found"));
         view.showMessage("Patient-cancelled appointment status: " + cancelledByPatient.getStatus());
 
+        // Medical record workflow
+        MedicalRecord record = mrCtrl.createRecord(patient.getUserId(), clinician);
+        mrCtrl.addEncounterNote(record.getRecordId(), "Initial consult and vitals captured.", clinician);
+        view.showMessage("Medical record state after note: "
+                + mrCtrl.getRecord(record.getRecordId(), clinician).getState());
+
         // Create and check prescription (Chain of Responsibility)
         Prescription rx = rxCtrl.createPrescription(appt);
         view.showMessage("Prescription status before issue: " + rx.getStatus());
-        ConflictResult cr = rxCtrl.checkConflicts(rx);
+        ConflictResult cr = rxCtrl.checkConflicts(rx.getRxId());
         view.showConflict(cr);
-        rxCtrl.issuePrescription(rx.getRxId());
+        ConflictResult review = rxCtrl.reviewPrescription(rx.getRxId(), "Clinician verified and approved after review");
+        view.showMessage("Review completed. Conflict found: " + review.isHasConflict());
+        rxCtrl.issuePrescription(rx.getRxId(), "pharmacist@clinic.com", "Clinician approved with documented review");
         Prescription updatedRx = rxRepo.findById(rx.getRxId())
                 .orElseThrow(() -> new RuntimeException("Prescription not found after issue: " + rx.getRxId()));
         view.showMessage("Prescription status after issue: " + updatedRx.getStatus());

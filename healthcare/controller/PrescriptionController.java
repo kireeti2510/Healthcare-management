@@ -18,5 +18,15 @@ public class PrescriptionController {
 
     public void issuePrescription(UUID rxId) { service.issueRx(rxId); }
 
+    public void issuePrescription(UUID rxId, String pharmacistContact, String overrideReason) {
+        service.issueRx(rxId, pharmacistContact, overrideReason);
+    }
+
+    public ConflictResult reviewPrescription(UUID rxId, String overrideReason) {
+        return service.reviewRx(rxId, overrideReason);
+    }
+
     public ConflictResult checkConflicts(Prescription rx) { return service.checkConflicts(rx); }
+
+    public ConflictResult checkConflicts(UUID rxId) { return service.checkConflicts(rxId); }
 }

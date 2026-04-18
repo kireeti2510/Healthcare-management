@@ -17,7 +17,7 @@ public class CancelAppointmentCommand implements Command {
 
     @Override
     public void execute() {
-        snapshot = repo.findById(appointmentId);
+        snapshot = repo.findById(appointmentId).orElse(null);
         if (snapshot != null) { snapshot.cancel(); repo.update(snapshot); }
     }
 

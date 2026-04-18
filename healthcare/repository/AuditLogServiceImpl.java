@@ -9,10 +9,16 @@ public class AuditLogServiceImpl implements IAuditLogService {
 
     @Override
     public void log(String action, UUID userId) {
-        String sql = "INSERT INTO audit_log(action, user_id) VALUES(?,?)";
+        log(action, userId, null);
+    }
+
+    @Override
+    public void log(String action, UUID userId, UUID appointmentId) {
+        String sql = "INSERT INTO audit_log(action, user_id, appointment_id) VALUES(?,?,?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, action);
             ps.setString(2, userId != null ? userId.toString() : null);
+            ps.setString(3, appointmentId != null ? appointmentId.toString() : null);
             ps.executeUpdate();
         } catch (SQLException e) { throw new RuntimeException(e); }
     }

@@ -460,6 +460,36 @@ td button {
   border-color: #bde3c4;
 }
 
+.status.updated {
+  background: #e9f2ff;
+  color: #275ea6;
+  border-color: #b8d1f5;
+}
+
+.status.archived {
+  background: #f0f0f0;
+  color: #4b4b4b;
+  border-color: #cfcfcf;
+}
+
+.conflict-pill {
+  border-radius: 8px;
+  padding: 0.28rem 0.45rem;
+  border: 1px solid;
+}
+
+.conflict-pill.high {
+  background: #fff1f0;
+  color: #8a1d12;
+  border-color: #f0b8b1;
+}
+
+.conflict-pill.low {
+  background: #ebfff0;
+  color: #1a6a2d;
+  border-color: #b8e5c4;
+}
+
 .row-actions {
   display: flex;
   gap: 0.45rem;
