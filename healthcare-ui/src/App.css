@@ -472,6 +472,24 @@ td button {
   border-color: #cfcfcf;
 }
 
+.conflict-pill {
+  border-radius: 8px;
+  padding: 0.28rem 0.45rem;
+  border: 1px solid;
+}
+
+.conflict-pill.high {
+  background: #fff1f0;
+  color: #8a1d12;
+  border-color: #f0b8b1;
+}
+
+.conflict-pill.low {
+  background: #ebfff0;
+  color: #1a6a2d;
+  border-color: #b8e5c4;
+}
+
 .row-actions {
   display: flex;
   gap: 0.45rem;

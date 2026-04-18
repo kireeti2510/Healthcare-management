@@ -5,6 +5,17 @@ const STORAGE_KEY = 'healthcare_ui_db_v2'
 const MAX_LOGIN_ATTEMPTS = 5
 const LOGIN_LOCK_MINUTES = 2
 const MEDICAL_RETENTION_YEARS = 7
+const DRUG_CATALOG = [
+  { name: 'Amoxicillin', contraindications: ['penicillin'] },
+  { name: 'Sulfamethoxazole', contraindications: ['sulfa'] },
+  { name: 'Aspirin', contraindications: ['ibuprofen sensitivity'] },
+  { name: 'Warfarin', contraindications: [] },
+  { name: 'Metformin', contraindications: [] },
+]
+const DRUG_RULES = DRUG_CATALOG.reduce((acc, drug) => {
+  acc[drug.name.toLowerCase()] = drug.contraindications
+  return acc
+}, {})
 
 const ROLE_TABS = {
   PATIENT: ['profile', 'appointments', 'prescriptions', 'medicalRecords'],
@@ -55,6 +66,52 @@ function hashPassword(raw) {
       (hash << 24)
   }
   return `h2:${(hash >>> 0).toString(16)}`
+}
+
+function normalizeToken(value) {
+  return (value || '').toString().trim().toLowerCase()
+}
+
+function evaluatePrescriptionConflicts(rx, appointment, patient) {
+  const conflicts = []
+  const items = Array.isArray(rx?.items) ? rx.items : []
+  const allergies = (patient?.allergies || []).map((a) => normalizeToken(a))
+
+  items.forEach((item) => {
+    const drugName = normalizeToken(item.drugName)
+    const contraindications = DRUG_RULES[drugName] || []
+    contraindications.forEach((ci) => {
+      if (allergies.includes(normalizeToken(ci))) {
+        conflicts.push(`Allergy conflict: ${item.drugName} has contraindication ${ci}.`)
+      }
+    })
+  })
+
+  const hasWarfarin = items.some((item) => normalizeToken(item.drugName) === 'warfarin')
+  const hasAspirin = items.some((item) => normalizeToken(item.drugName) === 'aspirin')
+  if (hasWarfarin && hasAspirin) {
+    conflicts.push('Drug interaction conflict: Warfarin with Aspirin increases bleeding risk.')
+  }
+
+  if (items.length > 5) {
+    conflicts.push('Drug interaction conflict: High polypharmacy risk.')
+  }
+
+  const severity = conflicts.some((c) => c.startsWith('Allergy'))
+    ? 'HIGH'
+    : conflicts.length > 0
+      ? 'MEDIUM'
+      : 'LOW'
+
+  return {
+    hasConflict: conflicts.length > 0,
+    conflicts,
+    severity,
+    checkedBy: ['AllergenMatchChecker', 'DrugInteractionChecker'],
+    checkedAt: nowStamp(),
+    appointmentId: appointment?.appointmentId || null,
+    patientId: appointment?.patientId || null,
+  }
 }
 
 function matchesPassword(raw, stored) {
@@ -325,6 +382,11 @@ function App() {
 
   const [rxForm, setRxForm] = useState({
     appointmentId: '',
+    drugName: DRUG_CATALOG[0].name,
+    dosage: '',
+    frequency: '',
+    durationDays: '5',
+    pharmacistContact: 'pharmacist@clinic.com',
     overrideReason: '',
   })
 
@@ -985,18 +1047,111 @@ function App() {
     }
 
     const rxId = uid()
+    const primaryDrugName = rxForm.drugName.trim()
+    const dosage = rxForm.dosage.trim()
+    const frequency = rxForm.frequency.trim()
+    const durationDays = Number.parseInt(rxForm.durationDays, 10)
+    if (!primaryDrugName || !dosage || !frequency || Number.isNaN(durationDays) || durationDays <= 0) {
+      notify('error', 'Drug, dosage, frequency, and valid duration are required.')
+      return
+    }
+
     write((next) => {
       next.prescriptions.push({
         rxId,
         appointmentId,
         status: 'DRAFT',
         issuedAt: null,
+        reviewedAt: null,
+        pharmacistContact: rxForm.pharmacistContact.trim() || null,
+        items: [
+          {
+            drugName: primaryDrugName,
+            dosage,
+            frequency,
+            durationDays,
+          },
+        ],
+        lastConflict: null,
         overrideReason: rxForm.overrideReason || null,
       })
       addAudit(next, `CREATE_PRESCRIPTION:${rxId}`, currentUserId)
     }, 'Prescription created.')
 
-    setRxForm({ appointmentId: '', overrideReason: '' })
+    setRxForm({
+      appointmentId: '',
+      drugName: DRUG_CATALOG[0].name,
+      dosage: '',
+      frequency: '',
+      durationDays: '5',
+      pharmacistContact: 'pharmacist@clinic.com',
+      overrideReason: '',
+    })
+  }
+
+  function checkPrescriptionConflicts(rxId) {
+    if (!(can('ISSUE_PRESCRIPTION') || can('MANAGE_USERS'))) {
+      notify('error', 'Only clinician/admin can run conflict checks.')
+      return
+    }
+
+    let statusMessage = 'Conflict check completed.'
+    write((next) => {
+      const rx = next.prescriptions.find((row) => row.rxId === rxId)
+      if (!rx) throw new Error('Prescription not found.')
+
+      const appt = next.appointments.find((a) => a.appointmentId === rx.appointmentId)
+      if (!appt) throw new Error('Linked appointment missing.')
+
+      if (currentRole === 'CLINICIAN' && appt.clinicianId !== currentUserId) {
+        throw new Error('Clinicians can review only their own prescriptions.')
+      }
+
+      const patient = next.patients.find((p) => p.userId === appt.patientId)
+      const result = evaluatePrescriptionConflicts(rx, appt, patient)
+      rx.lastConflict = result
+      if (result.hasConflict) {
+        addAudit(next, `CONFLICT_ALERT:${rxId}:${result.severity}`, currentUserId)
+        statusMessage = 'Conflict detected. Revise medication or provide override reason.'
+      } else {
+        statusMessage = 'No conflicts found. Ready for review.'
+      }
+    }, statusMessage)
+  }
+
+  function reviewPrescription(rxId) {
+    if (!(can('ISSUE_PRESCRIPTION') || can('MANAGE_USERS'))) {
+      notify('error', 'Only clinician/admin can review prescriptions.')
+      return
+    }
+
+    let reviewMessage = 'Prescription reviewed.'
+    write((next) => {
+      const rx = next.prescriptions.find((row) => row.rxId === rxId)
+      if (!rx) throw new Error('Prescription not found.')
+      if (rx.status !== 'DRAFT') throw new Error('Only DRAFT prescriptions can be reviewed.')
+
+      const appt = next.appointments.find((a) => a.appointmentId === rx.appointmentId)
+      if (!appt) throw new Error('Linked appointment missing.')
+      if (currentRole === 'CLINICIAN' && appt.clinicianId !== currentUserId) {
+        throw new Error('Clinicians can review only their own prescriptions.')
+      }
+
+      const patient = next.patients.find((p) => p.userId === appt.patientId)
+      const result = evaluatePrescriptionConflicts(rx, appt, patient)
+      rx.lastConflict = result
+
+      if (result.hasConflict && !(rx.overrideReason || '').trim()) {
+        throw new Error('Conflict found. Add override reason or revise prescription before review.')
+      }
+
+      rx.reviewedAt = nowStamp()
+      addAudit(next, `REVIEW_PRESCRIPTION:${rxId}:${result.hasConflict ? 'OVERRIDE' : 'NO_CONFLICT'}`, currentUserId)
+      if (result.hasConflict) {
+        addAudit(next, `CONFLICT_ALERT:${rxId}:${result.severity}`, currentUserId)
+        reviewMessage = 'Reviewed with conflict override.'
+      }
+    }, reviewMessage)
   }
 
   function transitionPrescription(rxId, action) {
@@ -1015,6 +1170,7 @@ function App() {
       return
     }
 
+    let actionMessage = `Prescription ${action.toLowerCase()}d.`
     write((next) => {
       const rx = next.prescriptions.find((r) => r.rxId === rxId)
       if (!rx) throw new Error('Prescription not found.')
@@ -1028,11 +1184,19 @@ function App() {
 
       if (action === 'ISSUE') {
         if (rx.status !== 'DRAFT') throw new Error('Can only issue DRAFT prescriptions.')
+        if (!rx.reviewedAt) throw new Error('Review prescription before issuing.')
+        if (rx.lastConflict?.hasConflict && !(rx.overrideReason || '').trim()) {
+          throw new Error('Conflicts require override reason before issue.')
+        }
         rx.status = 'ISSUED'
         rx.issuedAt = nowStamp()
         appt.status = 'COMPLETED'
         addAudit(next, `ISSUE_PRESCRIPTION:${rxId}`, currentUserId)
+        addAudit(next, `PRESCRIPTION_EVENT:ISSUED:${rxId}`, currentUserId)
         addAudit(next, `COMPLETE_APPOINTMENT:${appt.appointmentId}`, currentUserId)
+        const pharmacistContact = rx.pharmacistContact || 'pharmacist@clinic.com'
+        addAudit(next, `NOTIFY_PHARMACIST:${rxId}:${pharmacistContact}`, currentUserId)
+        actionMessage = `Prescription issued and pharmacist notified (${pharmacistContact}).`
         return
       }
 
@@ -1048,7 +1212,7 @@ function App() {
         rx.status = 'VOID'
         addAudit(next, `VOID_PRESCRIPTION:${rxId}`, currentUserId)
       }
-    }, `Prescription ${action.toLowerCase()}d.`)
+    }, actionMessage)
   }
 
   function createMedicalRecord(event) {
@@ -1165,6 +1329,7 @@ function App() {
   const rxRows = visiblePrescriptions.map((r) => ({
     ...r,
     appointment: db.appointments.find((a) => a.appointmentId === r.appointmentId) || null,
+    primaryItem: Array.isArray(r.items) && r.items.length > 0 ? r.items[0] : null,
   }))
 
   const medicalRecordRows = visibleMedicalRecords.map((r) => {
@@ -1830,6 +1995,56 @@ function App() {
                   </select>
                 </label>
                 <label className="full">
+                  Drug
+                  <select
+                    value={rxForm.drugName}
+                    onChange={(e) => setRxForm((f) => ({ ...f, drugName: e.target.value }))}
+                    required
+                  >
+                    {DRUG_CATALOG.map((drug) => (
+                      <option key={drug.name} value={drug.name}>
+                        {drug.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  Dosage
+                  <input
+                    value={rxForm.dosage}
+                    onChange={(e) => setRxForm((f) => ({ ...f, dosage: e.target.value }))}
+                    placeholder="e.g. 500 mg"
+                    required
+                  />
+                </label>
+                <label>
+                  Frequency
+                  <input
+                    value={rxForm.frequency}
+                    onChange={(e) => setRxForm((f) => ({ ...f, frequency: e.target.value }))}
+                    placeholder="e.g. twice daily"
+                    required
+                  />
+                </label>
+                <label>
+                  Duration (days)
+                  <input
+                    value={rxForm.durationDays}
+                    onChange={(e) => setRxForm((f) => ({ ...f, durationDays: e.target.value }))}
+                    type="number"
+                    min="1"
+                    required
+                  />
+                </label>
+                <label>
+                  Pharmacist Contact
+                  <input
+                    value={rxForm.pharmacistContact}
+                    onChange={(e) => setRxForm((f) => ({ ...f, pharmacistContact: e.target.value }))}
+                    placeholder="pharmacist@clinic.com"
+                  />
+                </label>
+                <label className="full">
                   Override Reason (optional)
                   <input
                     value={rxForm.overrideReason}
@@ -1866,15 +2081,46 @@ function App() {
                     </button>
                   </small>
                   <small>Issued At: {r.issuedAt ? new Date(r.issuedAt).toLocaleString() : '-'}</small>
+                  {r.primaryItem ? (
+                    <small>
+                      Medication: {r.primaryItem.drugName} | {r.primaryItem.dosage} | {r.primaryItem.frequency} | {r.primaryItem.durationDays}d
+                    </small>
+                  ) : null}
                   {r.overrideReason ? <small>Override: {r.overrideReason}</small> : null}
+                  <small>Reviewed At: {r.reviewedAt ? new Date(r.reviewedAt).toLocaleString() : '-'}</small>
+                  {r.lastConflict ? (
+                    <small className={r.lastConflict.hasConflict ? 'conflict-pill high' : 'conflict-pill low'}>
+                      {r.lastConflict.hasConflict
+                        ? `Conflict ${r.lastConflict.severity}: ${r.lastConflict.conflicts.join(' | ')}`
+                        : 'No conflicts from AllergenMatchChecker and DrugInteractionChecker.'}
+                    </small>
+                  ) : null}
                   <div className="row-actions">
                     {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
                       <button
                         type="button"
                         disabled={r.status !== 'DRAFT'}
+                        onClick={() => checkPrescriptionConflicts(r.rxId)}
+                      >
+                        Check Conflicts
+                      </button>
+                    )}
+                    {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+                      <button
+                        type="button"
+                        disabled={r.status !== 'DRAFT'}
+                        onClick={() => reviewPrescription(r.rxId)}
+                      >
+                        Review
+                      </button>
+                    )}
+                    {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+                      <button
+                        type="button"
+                        disabled={r.status !== 'DRAFT' || !r.reviewedAt}
                         onClick={() => transitionPrescription(r.rxId, 'ISSUE')}
                       >
-                        Issue
+                        Approve & Issue
                       </button>
                     )}
                     {(currentRole === 'PHARMACIST' || currentRole === 'CLINIC_ADMIN') && (

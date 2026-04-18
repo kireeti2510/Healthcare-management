@@ -42,7 +42,7 @@ public class Main {
 
         IPatientService      patSvc     = new PatientServiceImpl(patRepo, auditLog);
         IAppointmentService  apptSvc    = new AppointmentServiceImpl(apptRepo, auditLog, notifSvc, waitlistRepo);
-        IPrescriptionService rxSvc      = new PrescriptionServiceImpl(rxRepo, apptRepo, auditLog);
+        IPrescriptionService rxSvc      = new PrescriptionServiceImpl(rxRepo, apptRepo, auditLog, notifSvc);
         IMedicalRecordService mrSvc     = new MedicalRecordServiceImpl(mrRepo, auditLog);
         ClinicAdminServiceImpl adminSvc = new ClinicAdminServiceImpl(auditLog, notifSvc);
 
@@ -118,9 +118,11 @@ public class Main {
         // Create and check prescription (Chain of Responsibility)
         Prescription rx = rxCtrl.createPrescription(appt);
         view.showMessage("Prescription status before issue: " + rx.getStatus());
-        ConflictResult cr = rxCtrl.checkConflicts(rx);
+        ConflictResult cr = rxCtrl.checkConflicts(rx.getRxId());
         view.showConflict(cr);
-        rxCtrl.issuePrescription(rx.getRxId());
+        ConflictResult review = rxCtrl.reviewPrescription(rx.getRxId(), "Clinician verified and approved after review");
+        view.showMessage("Review completed. Conflict found: " + review.isHasConflict());
+        rxCtrl.issuePrescription(rx.getRxId(), "pharmacist@clinic.com", "Clinician approved with documented review");
         Prescription updatedRx = rxRepo.findById(rx.getRxId())
                 .orElseThrow(() -> new RuntimeException("Prescription not found after issue: " + rx.getRxId()));
         view.showMessage("Prescription status after issue: " + updatedRx.getStatus());
