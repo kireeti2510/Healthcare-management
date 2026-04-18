@@ -23,6 +23,10 @@ public class AppointmentController {
         service.cancel(appointmentId);
     }
 
+    public void cancelAppointmentByPatient(UUID patientId, UUID appointmentId) {
+        service.cancelByPatient(appointmentId, patientId);
+    }
+
     public List<Appointment> getAvailableSlots() {
         return service.getAvailableSlots();
     }

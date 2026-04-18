@@ -41,8 +41,8 @@ public class AppointmentServiceImpl implements IAppointmentService {
 
     @Override
     public void cancel(UUID id) {
-        Appointment appt = repo.findById(id);
-        if (appt == null) throw new RuntimeException("Appointment not found: " + id);
+        Appointment appt = repo.findById(id)
+            .orElseThrow(() -> new RuntimeException("Appointment not found: " + id));
 
         // Command pattern: wrap cancellation as a command
         CancelAppointmentCommand cancelCmd = new CancelAppointmentCommand(repo, id);
@@ -52,6 +52,22 @@ public class AppointmentServiceImpl implements IAppointmentService {
 
         NotifyCommand notifyCmd = new NotifyCommand(notifSvc,
             "Appointment canceled for " + appt.getScheduledAt(), appt.getPatientId().toString());
+        notifyCmd.execute();
+    }
+
+    @Override
+    public void cancelByPatient(UUID appointmentId, UUID patientId) {
+        Appointment appt = repo.findById(appointmentId)
+                .orElseThrow(() -> new RuntimeException("Appointment not found: " + appointmentId));
+        if (!appt.getPatientId().equals(patientId)) {
+            throw new RuntimeException("Patients can cancel only their own appointments.");
+        }
+        appt.cancel();
+        repo.update(appt);
+        auditLog.log("CANCEL_APPOINTMENT_BY_PATIENT:" + appointmentId, patientId);
+
+        NotifyCommand notifyCmd = new NotifyCommand(notifSvc,
+                "Appointment canceled for " + appt.getScheduledAt(), appt.getPatientId().toString());
         notifyCmd.execute();
     }
 

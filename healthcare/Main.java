@@ -34,6 +34,7 @@ public class Main {
         IApptRepository      apptRepo   = new ApptRepositoryImpl();
         IPatientRepository   patRepo    = new PatientRepositoryImpl();
         IPrescriptionRepository rxRepo  = new PrescriptionRepositoryImpl();
+        IMedicalRecordRepository mrRepo = new MedicalRecordRepositoryImpl();
         IAuditLogService     auditLog   = new AuditLogServiceImpl();
 
         INotificationService notifSvc   = new EmailSMSNotifService("SMTP-Client", "SMS-Gateway");
@@ -41,12 +42,14 @@ public class Main {
         IPatientService      patSvc     = new PatientServiceImpl(patRepo, auditLog);
         IAppointmentService  apptSvc    = new AppointmentServiceImpl(apptRepo, auditLog, notifSvc);
         IPrescriptionService rxSvc      = new PrescriptionServiceImpl(rxRepo, apptRepo, auditLog);
+        IMedicalRecordService mrSvc     = new MedicalRecordServiceImpl(mrRepo, auditLog);
         ClinicAdminServiceImpl adminSvc = new ClinicAdminServiceImpl(auditLog, notifSvc);
 
         // 3. MVC Controllers
         PatientController      patCtrl  = new PatientController(patSvc);
         AppointmentController  apptCtrl = new AppointmentController(apptSvc);
         PrescriptionController rxCtrl   = new PrescriptionController(rxSvc);
+        MedicalRecordController mrCtrl  = new MedicalRecordController(mrSvc);
         AdminController        adminCtrl= new AdminController(adminSvc);
         AuthController         authCtrl = new AuthController(auditLog);
 
@@ -104,6 +107,12 @@ public class Main {
         Appointment cancelledByPatient = apptRepo.findById(apptToCancel.getAppointmentId())
                 .orElseThrow(() -> new RuntimeException("Cancelled appointment not found"));
         view.showMessage("Patient-cancelled appointment status: " + cancelledByPatient.getStatus());
+
+        // Medical record workflow
+        MedicalRecord record = mrCtrl.createRecord(patient.getUserId(), clinician);
+        mrCtrl.addEncounterNote(record.getRecordId(), "Initial consult and vitals captured.", clinician);
+        view.showMessage("Medical record state after note: "
+                + mrCtrl.getRecord(record.getRecordId(), clinician).getState());
 
         // Create and check prescription (Chain of Responsibility)
         Prescription rx = rxCtrl.createPrescription(appt);
