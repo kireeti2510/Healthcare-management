@@ -1,0 +1,9 @@
+2026-04-18 18:00:44.550369+05:30 jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Syntax error in SQL statement "    CREATE TABLE IF NOT EXISTS medical_record_notes (\000a        id INTEGER PRIMARY KEY [*]AUTOINCREMENT,\000a        record_id TEXT NOT NULL,\000a        note TEXT NOT NULL,\000a        FOREIGN KEY(record_id) REFERENCES medical_records(record_id)\000a    )\000a"; expected "HASH, CONSTRAINT, COMMENT, UNIQUE, NOT NULL, CHECK, REFERENCES, ,, )"; SQL statement:
+    CREATE TABLE IF NOT EXISTS medical_record_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        record_id TEXT NOT NULL,
+        note TEXT NOT NULL,
+        FOREIGN KEY(record_id) REFERENCES medical_records(record_id)
+    )
+ [42001-232]
