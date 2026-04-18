@@ -32,6 +32,7 @@ public class Main {
 
         // 2. Build dependency graph manually
         IApptRepository      apptRepo   = new ApptRepositoryImpl();
+        IWaitlistRepository  waitlistRepo = new WaitlistRepositoryImpl();
         IPatientRepository   patRepo    = new PatientRepositoryImpl();
         IPrescriptionRepository rxRepo  = new PrescriptionRepositoryImpl();
         IMedicalRecordRepository mrRepo = new MedicalRecordRepositoryImpl();
@@ -40,7 +41,7 @@ public class Main {
         INotificationService notifSvc   = new EmailSMSNotifService("SMTP-Client", "SMS-Gateway");
 
         IPatientService      patSvc     = new PatientServiceImpl(patRepo, auditLog);
-        IAppointmentService  apptSvc    = new AppointmentServiceImpl(apptRepo, auditLog, notifSvc);
+        IAppointmentService  apptSvc    = new AppointmentServiceImpl(apptRepo, auditLog, notifSvc, waitlistRepo);
         IPrescriptionService rxSvc      = new PrescriptionServiceImpl(rxRepo, apptRepo, auditLog);
         IMedicalRecordService mrSvc     = new MedicalRecordServiceImpl(mrRepo, auditLog);
         ClinicAdminServiceImpl adminSvc = new ClinicAdminServiceImpl(auditLog, notifSvc);

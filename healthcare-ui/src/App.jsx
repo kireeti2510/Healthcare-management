@@ -29,6 +29,7 @@ const initialDb = {
   users: [],
   patients: [],
   appointments: [],
+  waitlist: [],
   prescriptions: [],
   medicalRecords: [],
   audit: [],
@@ -88,11 +89,12 @@ function defaultTabForRole(role) {
   return ROLE_TABS[role]?.[0] || 'auth'
 }
 
-function addAudit(db, action, userId = null) {
+function addAudit(db, action, userId = null, appointmentId = null) {
   db.audit.unshift({
     id: uid(),
     action,
     userId,
+    appointmentId,
     timestamp: nowStamp(),
   })
 }
@@ -182,6 +184,8 @@ function seedDb(db) {
       patientId: patientA.userId,
       clinicianId: clinicianA.userId,
       scheduledAt: '2026-04-20T09:30:00.000Z',
+      reasonForVisit: 'Annual wellness check',
+      roomId: 'A101',
       status: 'PENDING',
     },
     {
@@ -189,6 +193,8 @@ function seedDb(db) {
       patientId: patientB.userId,
       clinicianId: clinicianA.userId,
       scheduledAt: '2026-04-21T11:00:00.000Z',
+      reasonForVisit: 'Follow-up consultation',
+      roomId: 'A204',
       status: 'CONFIRMED',
     },
     {
@@ -196,6 +202,8 @@ function seedDb(db) {
       patientId: patientC.userId,
       clinicianId: clinicianB.userId,
       scheduledAt: '2026-04-22T15:15:00.000Z',
+      reasonForVisit: 'Chest pain evaluation',
+      roomId: 'B301',
       status: 'PENDING',
     },
   )
@@ -251,6 +259,7 @@ function loadDb() {
       users: parsed.users || [],
       patients: parsed.patients || [],
       appointments: parsed.appointments || [],
+      waitlist: parsed.waitlist || [],
       prescriptions: parsed.prescriptions || [],
       medicalRecords: parsed.medicalRecords || [],
       audit: parsed.audit || [],
@@ -304,7 +313,15 @@ function App() {
     patientId: '',
     clinicianId: '',
     scheduledAt: '',
+    reasonForVisit: '',
+    roomId: '',
+    referralsMet: true,
+    priorVisitsMet: true,
+    overrideMissingPrerequisites: false,
+    overrideReason: '',
   })
+
+  const [unavailableRequest, setUnavailableRequest] = useState(null)
 
   const [rxForm, setRxForm] = useState({
     appointmentId: '',
@@ -383,6 +400,11 @@ function App() {
     }
   }, [currentRole, tab, visibleTabs])
 
+  useEffect(() => {
+    if (currentRole !== 'PATIENT') return
+    setAppointmentForm((prev) => ({ ...prev, patientId: currentUserId }))
+  }, [currentRole, currentUserId])
+
   function notify(type, text) {
     setNotice({ type, text })
   }
@@ -416,13 +438,27 @@ function App() {
 
     if (action === 'VIEW_PATIENT_PROFILE') return currentRole === 'PATIENT'
     if (action === 'MANAGE_PATIENTS') return currentRole === 'RECEPTIONIST'
-    if (action === 'SCHEDULE_APPOINTMENT') return currentRole === 'RECEPTIONIST'
+    if (action === 'SCHEDULE_APPOINTMENT') return currentRole === 'RECEPTIONIST' || currentRole === 'PATIENT'
     if (action === 'CANCEL_APPOINTMENT') return currentRole === 'RECEPTIONIST' || currentRole === 'PATIENT'
     if (action === 'CREATE_PRESCRIPTION') return currentRole === 'CLINICIAN'
     if (action === 'ISSUE_PRESCRIPTION') return currentRole === 'CLINICIAN'
     if (action === 'DISPENSE_PRESCRIPTION') return currentRole === 'PHARMACIST'
     if (action === 'VOID_PRESCRIPTION') return currentRole === 'CLINICIAN'
     return false
+  }
+
+  function getVisibleWaitlist() {
+    if (!currentRole) return []
+    if (currentRole === 'PATIENT') {
+      return db.waitlist.filter((w) => w.patientId === currentUserId)
+    }
+    if (currentRole === 'CLINICIAN') {
+      return db.waitlist.filter((w) => w.clinicianId === currentUserId)
+    }
+    if (currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN') {
+      return db.waitlist
+    }
+    return []
   }
 
   function getVisibleMedicalRecords() {
@@ -690,6 +726,10 @@ function App() {
     () => getVisiblePrescriptions(),
     [db.prescriptions, db.appointments, currentRole, currentUserId],
   )
+  const visibleWaitlist = useMemo(
+    () => getVisibleWaitlist(),
+    [db.waitlist, currentRole, currentUserId],
+  )
   const visibleMedicalRecords = useMemo(
     () => getVisibleMedicalRecords(),
     [db.medicalRecords, currentRole, currentUserId],
@@ -753,15 +793,28 @@ function App() {
   function scheduleAppointment(event) {
     event.preventDefault()
     if (!can('SCHEDULE_APPOINTMENT') && !can('MANAGE_USERS')) {
-      notify('error', 'Only receptionist/admin can schedule appointments.')
+      notify('error', 'Only patient/receptionist/admin can schedule appointments.')
       return
     }
 
     const patientId = appointmentForm.patientId.trim()
     const clinicianId = appointmentForm.clinicianId.trim()
+    const scheduledAtIso = new Date(appointmentForm.scheduledAt).toISOString()
+    const reasonForVisit = appointmentForm.reasonForVisit.trim()
+    const roomId = appointmentForm.roomId.trim()
+    const referralsMet = Boolean(appointmentForm.referralsMet)
+    const priorVisitsMet = Boolean(appointmentForm.priorVisitsMet)
+    const prerequisitesMet = referralsMet && priorVisitsMet
+    const overrideMissingPrerequisites = Boolean(appointmentForm.overrideMissingPrerequisites)
+    const overrideReason = appointmentForm.overrideReason.trim()
 
     if (!patientsById.has(patientId)) {
       notify('error', 'Invalid patient ID.')
+      return
+    }
+
+    if (currentRole === 'PATIENT' && patientId !== currentUserId) {
+      notify('error', 'Patients can only schedule for themselves.')
       return
     }
 
@@ -776,6 +829,63 @@ function App() {
       return
     }
 
+    if (!reasonForVisit) {
+      notify('error', 'Reason for visit is required.')
+      return
+    }
+
+    if (!prerequisitesMet) {
+      if (!overrideMissingPrerequisites) {
+        notify('error', 'Missing prerequisites. Enable override with justification or abort scheduling.')
+        return
+      }
+      if (!overrideReason) {
+        notify('error', 'Override reason is required when prerequisites are not met.')
+        return
+      }
+    }
+
+    const clinicianConflict = db.appointments.some(
+      (a) =>
+        a.clinicianId === clinicianId &&
+        a.scheduledAt === scheduledAtIso &&
+        a.status !== 'CANCELLED' &&
+        a.status !== 'COMPLETED',
+    )
+    const roomConflict = roomId
+      ? db.appointments.some(
+          (a) =>
+            a.roomId === roomId &&
+            a.scheduledAt === scheduledAtIso &&
+            a.status !== 'CANCELLED' &&
+            a.status !== 'COMPLETED',
+        )
+      : false
+
+    if (clinicianConflict || roomConflict) {
+      setUnavailableRequest({
+        patientId,
+        clinicianId,
+        scheduledAt: scheduledAtIso,
+        reasonForVisit,
+        roomId: roomId || null,
+      })
+      notify('error', 'Slot unavailable. Choose alternative slot or join waitlist.')
+      return
+    }
+
+    const patientConflict = db.appointments.some(
+      (a) =>
+        a.patientId === patientId &&
+        a.scheduledAt === scheduledAtIso &&
+        a.status !== 'CANCELLED' &&
+        a.status !== 'COMPLETED',
+    )
+    if (patientConflict) {
+      notify('error', 'Patient already has an appointment at this time.')
+      return
+    }
+
     const appointmentId = uid()
 
     write((next) => {
@@ -783,13 +893,55 @@ function App() {
         appointmentId,
         patientId,
         clinicianId,
-        scheduledAt: new Date(appointmentForm.scheduledAt).toISOString(),
+        scheduledAt: scheduledAtIso,
+        reasonForVisit,
+        roomId: roomId || null,
+        referralsMet,
+        priorVisitsMet,
+        overrideReason: prerequisitesMet ? null : overrideReason,
         status: 'PENDING',
       })
-      addAudit(next, `SCHEDULE_APPOINTMENT:${appointmentId}`, currentUserId)
+      addAudit(next, `SCHEDULE_APPOINTMENT:${appointmentId}`, currentUserId, appointmentId)
+      if (!prerequisitesMet && overrideMissingPrerequisites) {
+        addAudit(next, `SCHEDULE_OVERRIDE:${appointmentId}:${overrideReason}`, currentUserId, appointmentId)
+      }
     }, 'Appointment scheduled.')
 
-    setAppointmentForm({ patientId: '', clinicianId: '', scheduledAt: '' })
+    setUnavailableRequest(null)
+    setAppointmentForm({
+      patientId: currentRole === 'PATIENT' ? currentUserId : '',
+      clinicianId: '',
+      scheduledAt: '',
+      reasonForVisit: '',
+      roomId: '',
+      referralsMet: true,
+      priorVisitsMet: true,
+      overrideMissingPrerequisites: false,
+      overrideReason: '',
+    })
+  }
+
+  function joinWaitlistForUnavailableRequest() {
+    if (!unavailableRequest) {
+      notify('error', 'No unavailable slot request to waitlist.')
+      return
+    }
+
+    const waitlistId = uid()
+    write((next) => {
+      next.waitlist.push({
+        waitlistId,
+        patientId: unavailableRequest.patientId,
+        clinicianId: unavailableRequest.clinicianId,
+        requestedAt: nowStamp(),
+        requestedSlot: unavailableRequest.scheduledAt,
+        roomId: unavailableRequest.roomId,
+        reasonForVisit: unavailableRequest.reasonForVisit,
+      })
+      addAudit(next, `JOIN_WAITLIST:${waitlistId}`, currentUserId)
+    }, 'Joined waitlist. Confirmation sent (no PHI).')
+
+    setUnavailableRequest(null)
   }
 
   function cancelAppointment(appointmentId) {
@@ -1002,6 +1154,12 @@ function App() {
     ...a,
     patientEmail: usersById.get(a.patientId)?.email || 'unknown',
     clinicianEmail: usersById.get(a.clinicianId)?.email || 'unknown',
+  }))
+
+  const waitlistRows = visibleWaitlist.map((w) => ({
+    ...w,
+    patientEmail: usersById.get(w.patientId)?.email || 'unknown',
+    clinicianEmail: usersById.get(w.clinicianId)?.email || 'unknown',
   }))
 
   const rxRows = visiblePrescriptions.map((r) => ({
@@ -1440,7 +1598,7 @@ function App() {
 
       {tab === 'appointments' && (
         <section className="panel">
-          {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN') && (
+          {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN' || currentRole === 'PATIENT') && (
             <>
               <h2>Schedule Appointment</h2>
               <form onSubmit={scheduleAppointment} className="form-grid">
@@ -1451,14 +1609,23 @@ function App() {
                     onChange={(e) =>
                       setAppointmentForm((f) => ({ ...f, patientId: e.target.value }))
                     }
+                    disabled={currentRole === 'PATIENT'}
                     required
                   >
-                    <option value="">Choose patient...</option>
-                    {patientOptions.map((p) => (
-                      <option key={p.userId} value={p.userId}>
-                        {p.email} ({shortId(p.userId)})
+                    {currentRole === 'PATIENT' ? (
+                      <option value={currentUserId}>
+                        {usersById.get(currentUserId)?.email || 'My profile'} ({shortId(currentUserId)})
                       </option>
-                    ))}
+                    ) : (
+                      <>
+                        <option value="">Choose patient...</option>
+                        {patientOptions.map((p) => (
+                          <option key={p.userId} value={p.userId}>
+                            {p.email} ({shortId(p.userId)})
+                          </option>
+                        ))}
+                      </>
+                    )}
                   </select>
                 </label>
                 <label>
@@ -1489,8 +1656,96 @@ function App() {
                     required
                   />
                 </label>
+                <label className="full">
+                  Reason For Visit
+                  <input
+                    value={appointmentForm.reasonForVisit}
+                    onChange={(e) =>
+                      setAppointmentForm((f) => ({ ...f, reasonForVisit: e.target.value }))
+                    }
+                    placeholder="Short clinical reason"
+                    required
+                  />
+                </label>
+                <label>
+                  Room ID (optional)
+                  <input
+                    value={appointmentForm.roomId}
+                    onChange={(e) =>
+                      setAppointmentForm((f) => ({ ...f, roomId: e.target.value }))
+                    }
+                    placeholder="e.g., A101"
+                  />
+                </label>
+                <label>
+                  Referral Available
+                  <select
+                    value={appointmentForm.referralsMet ? 'YES' : 'NO'}
+                    onChange={(e) =>
+                      setAppointmentForm((f) => ({ ...f, referralsMet: e.target.value === 'YES' }))
+                    }
+                  >
+                    <option value="YES">Yes</option>
+                    <option value="NO">No</option>
+                  </select>
+                </label>
+                <label>
+                  Prior Visit Verified
+                  <select
+                    value={appointmentForm.priorVisitsMet ? 'YES' : 'NO'}
+                    onChange={(e) =>
+                      setAppointmentForm((f) => ({ ...f, priorVisitsMet: e.target.value === 'YES' }))
+                    }
+                  >
+                    <option value="YES">Yes</option>
+                    <option value="NO">No</option>
+                  </select>
+                </label>
+                {(!appointmentForm.referralsMet || !appointmentForm.priorVisitsMet) && (
+                  <>
+                    <label className="full">
+                      Override Missing Prerequisites?
+                      <select
+                        value={appointmentForm.overrideMissingPrerequisites ? 'YES' : 'NO'}
+                        onChange={(e) =>
+                          setAppointmentForm((f) => ({
+                            ...f,
+                            overrideMissingPrerequisites: e.target.value === 'YES',
+                          }))
+                        }
+                      >
+                        <option value="NO">No (Abort)</option>
+                        <option value="YES">Yes (Override)</option>
+                      </select>
+                    </label>
+                    {appointmentForm.overrideMissingPrerequisites && (
+                      <label className="full">
+                        Override Reason
+                        <input
+                          value={appointmentForm.overrideReason}
+                          onChange={(e) =>
+                            setAppointmentForm((f) => ({ ...f, overrideReason: e.target.value }))
+                          }
+                          placeholder="Justification for override"
+                          required
+                        />
+                      </label>
+                    )}
+                  </>
+                )}
                 <button type="submit">Schedule</button>
               </form>
+              {unavailableRequest && (
+                <div className="panel compact top-gap">
+                  <strong>Requested slot unavailable.</strong>{' '}
+                  Join waitlist or pick a different date/time.
+                  <div className="row-actions top-gap">
+                    <button type="button" onClick={joinWaitlistForUnavailableRequest}>
+                      Join Waitlist
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -1515,6 +1770,12 @@ function App() {
                   {a.patientEmail} {'->'} {a.clinicianEmail}
                 </small>
                 <small>{new Date(a.scheduledAt).toLocaleString()}</small>
+                <small>Reason: {a.reasonForVisit || '-'}</small>
+                <small>Room: {a.roomId || '-'}</small>
+                <small>
+                  Prerequisites: referral={a.referralsMet === false ? 'NO' : 'YES'}, priorVisit={a.priorVisitsMet === false ? 'NO' : 'YES'}
+                </small>
+                {a.overrideReason ? <small>Override: {a.overrideReason}</small> : null}
                 {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN' || currentRole === 'PATIENT') && (
                   <button
                     type="button"
@@ -1524,6 +1785,23 @@ function App() {
                     Cancel
                   </button>
                 )}
+              </div>
+            ))}
+          </div>
+
+          <h3>Waitlist ({waitlistRows.length})</h3>
+          <div className="appointment-list">
+            {waitlistRows.map((w) => (
+              <div className="appointment-card" key={w.waitlistId}>
+                <p>
+                  <strong>{shortId(w.waitlistId)}</strong>
+                  <span className="status pending">WAITLIST</span>
+                </p>
+                <small>Patient: {w.patientEmail}</small>
+                <small>Clinician: {w.clinicianEmail}</small>
+                <small>Requested Slot: {new Date(w.requestedSlot).toLocaleString()}</small>
+                <small>Room: {w.roomId || '-'}</small>
+                <small>Reason: {w.reasonForVisit || '-'}</small>
               </div>
             ))}
           </div>
@@ -1750,6 +2028,7 @@ function App() {
                   <th>Timestamp</th>
                   <th>Action</th>
                   <th>User</th>
+                  <th>Appointment</th>
                 </tr>
               </thead>
               <tbody>
@@ -1760,6 +2039,7 @@ function App() {
                       <td>{new Date(a.timestamp).toLocaleString()}</td>
                       <td>{a.action}</td>
                       <td>{u ? `${u.email} (${a.userId.slice(0, 8)}...)` : '-'}</td>
+                      <td>{a.appointmentId ? shortId(a.appointmentId) : '-'}</td>
                     </tr>
                   )
                 })}
