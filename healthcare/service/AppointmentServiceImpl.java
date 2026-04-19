@@ -201,10 +201,7 @@ public class AppointmentServiceImpl implements IAppointmentService {
             case "RECEPTIONIST":
                 return;
             case "PATIENT":
-                if (actorUserId != null && actorUserId.equals(patientId)) {
-                    return;
-                }
-                throw new SecurityException("Patients can schedule only for themselves.");
+                throw new SecurityException("Patients are not authorized to schedule appointments.");
             default:
                 throw new SecurityException("Access denied: role is not authorized for scheduling.");
         }

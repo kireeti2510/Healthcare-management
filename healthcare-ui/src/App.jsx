@@ -605,7 +605,7 @@ function App() {
     if (action === 'VIEW_PATIENT_PROFILE') return currentRole === 'PATIENT'
     if (action === 'MANAGE_PATIENTS') return currentRole === 'RECEPTIONIST'
     if (action === 'SCHEDULE_APPOINTMENT') return currentRole === 'RECEPTIONIST'
-    if (action === 'CANCEL_APPOINTMENT') return currentRole === 'RECEPTIONIST'
+    if (action === 'CANCEL_APPOINTMENT') return currentRole === 'RECEPTIONIST' || currentRole === 'PATIENT'
     if (action === 'CREATE_PRESCRIPTION') return currentRole === 'CLINICIAN'
     if (action === 'ISSUE_PRESCRIPTION') return currentRole === 'CLINICIAN'
     if (action === 'DISPENSE_PRESCRIPTION') return currentRole === 'PHARMACIST'
@@ -1191,7 +1191,7 @@ function App() {
 
   function cancelAppointment(appointmentId) {
     if (!can('CANCEL_APPOINTMENT') && !can('MANAGE_USERS')) {
-      notify('error', 'Only receptionist or admin can cancel appointments.')
+      notify('error', 'Only patients, receptionists or admins can cancel appointments.')
       return
     }
 
@@ -2245,7 +2245,7 @@ function App() {
                     Prerequisites: referral={a.referralsMet === false ? 'NO' : 'YES'}, priorVisit={a.priorVisitsMet === false ? 'NO' : 'YES'}
                   </small>
                   {a.overrideReason ? <small>Override: {a.overrideReason}</small> : null}
-                  {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN') && (
+                  {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN' || currentRole === 'PATIENT') && (
                     <button
                       type="button"
                       disabled={a.status === 'CANCELLED' || a.status === 'COMPLETED'}
@@ -2391,7 +2391,6 @@ function App() {
                       </small>
                     ) : null}
                     {r.overrideReason ? <small>Override: {r.overrideReason}</small> : null}
-                    <small>Reviewed At: {r.reviewedAt ? new Date(r.reviewedAt).toLocaleString() : '-'}</small>
                     {r.lastConflict ? (
                       <small className={r.lastConflict.hasConflict ? 'conflict-pill high' : 'conflict-pill low'}>
                         {r.lastConflict.hasConflict
@@ -2571,7 +2570,6 @@ function App() {
         {tab === 'notifications' && currentRole && (
           <section className="panel">
             <h2>Notification Center ({visibleNotifications.length})</h2>
-            <p className="hint">Delivery lifecycle: PENDING -&gt; SENT or FAILED -&gt; RETRYING -&gt; ABANDONED.</p>
             <div className="appointment-list top-gap">
               {visibleNotifications.map((n) => (
                 <div className="appointment-card" key={n.notificationId}>
