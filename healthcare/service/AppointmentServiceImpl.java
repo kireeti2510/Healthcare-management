@@ -16,6 +16,8 @@ import java.util.*;
  * Uses: Command Pattern (behavioral) for audit/notify on schedule/cancel
  */
 public class AppointmentServiceImpl implements IAppointmentService {
+    private static final String ADMIN_NOTIFICATION_RECIPIENT = "admin@clinic.com";
+
     private final IApptRepository repo;
     private final IAuditLogService auditLog;
     private final INotificationService notifSvc;
@@ -116,10 +118,7 @@ public class AppointmentServiceImpl implements IAppointmentService {
                     actorUserId, appt.getAppointmentId());
         }
 
-        // Command pattern: wrap notification as a command (email)
-        NotifyCommand cmd = new NotifyCommand(notifSvc,
-                "Appointment scheduled for " + dateTime + " (ID: " + appt.getAppointmentId() + ")", patientId.toString());
-        cmd.execute();
+        notifyScheduledAppointment(appt);
         // SMS confirmation without PHI
         notifSvc.sendSMS(patientId.toString(), "Appointment confirmed for " + dateTime + ".");
 
@@ -164,9 +163,7 @@ public class AppointmentServiceImpl implements IAppointmentService {
 
         auditLog.log("CANCEL_APPOINTMENT:" + id, appt.getPatientId(), id);
 
-        NotifyCommand notifyCmd = new NotifyCommand(notifSvc,
-            "Appointment canceled for " + appt.getScheduledAt(), appt.getPatientId().toString());
-        notifyCmd.execute();
+        notifyCancellationByClinic(appt);
     }
 
     @Override
@@ -180,9 +177,7 @@ public class AppointmentServiceImpl implements IAppointmentService {
         repo.update(appt);
         auditLog.log("CANCEL_APPOINTMENT_BY_PATIENT:" + appointmentId, patientId, appointmentId);
 
-        NotifyCommand notifyCmd = new NotifyCommand(notifSvc,
-                "Appointment canceled for " + appt.getScheduledAt(), appt.getPatientId().toString());
-        notifyCmd.execute();
+        notifyCancellationByPatient(appt);
     }
 
     @Override
@@ -213,5 +208,53 @@ public class AppointmentServiceImpl implements IAppointmentService {
         }
         String trimmed = reason.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private void notifyScheduledAppointment(Appointment appt) {
+        String when = appt.getScheduledAt().toString();
+        notifyRecipient(appt.getPatientId().toString(),
+            "You have an appointment with clinician " + appt.getClinicianId()
+                + " at " + when + " (ID: " + appt.getAppointmentId() + ").");
+        notifyRecipient(appt.getClinicianId().toString(),
+            "New appointment from patient " + appt.getPatientId()
+                + " at " + when + " (ID: " + appt.getAppointmentId() + ").");
+        notifyRecipient(ADMIN_NOTIFICATION_RECIPIENT,
+            "Appointment scheduled: patient " + appt.getPatientId()
+                + ", clinician " + appt.getClinicianId()
+                + ", at " + when + " (ID: " + appt.getAppointmentId() + ").");
+    }
+
+    private void notifyCancellationByClinic(Appointment appt) {
+        String when = appt.getScheduledAt().toString();
+        notifyRecipient(appt.getPatientId().toString(),
+            "Your appointment with clinician " + appt.getClinicianId()
+                + " at " + when + " was cancelled.");
+        notifyRecipient(appt.getClinicianId().toString(),
+            "Appointment with patient " + appt.getPatientId()
+                + " at " + when + " was cancelled.");
+        notifyRecipient(ADMIN_NOTIFICATION_RECIPIENT,
+            "Appointment cancelled: patient " + appt.getPatientId()
+                + ", clinician " + appt.getClinicianId()
+                + ", at " + when + " (ID: " + appt.getAppointmentId() + ").");
+    }
+
+    private void notifyCancellationByPatient(Appointment appt) {
+        String when = appt.getScheduledAt().toString();
+        notifyRecipient(appt.getPatientId().toString(),
+            "Your appointment with clinician " + appt.getClinicianId()
+                + " at " + when + " was cancelled.");
+        notifyRecipient(appt.getClinicianId().toString(),
+            "Patient " + appt.getPatientId()
+                + " cancelled the appointment at " + when
+                + " (ID: " + appt.getAppointmentId() + ").");
+        notifyRecipient(ADMIN_NOTIFICATION_RECIPIENT,
+            "Patient-cancelled appointment: patient " + appt.getPatientId()
+                + ", clinician " + appt.getClinicianId()
+                + ", at " + when + " (ID: " + appt.getAppointmentId() + ").");
+    }
+
+    private void notifyRecipient(String recipient, String message) {
+        NotifyCommand notifyCmd = new NotifyCommand(notifSvc, message, recipient);
+        notifyCmd.execute();
     }
 }

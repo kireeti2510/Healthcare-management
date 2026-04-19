@@ -77,6 +77,7 @@ public class PrescriptionServiceImpl implements IPrescriptionService {
         auditLog.log("ISSUE_PRESCRIPTION:" + rxId, appt.getPatientId());
         auditLog.log("PRESCRIPTION_EVENT:ISSUED:" + rxId, appt.getPatientId());
         auditLog.log("COMPLETE_APPOINTMENT:" + appt.getAppointmentId(), appt.getPatientId());
+        notifyPatientAndClinicianOnIssue(rx, appt);
         notifyPharmacist(rx, pharmacistContact);
     }
 
@@ -197,6 +198,21 @@ public class PrescriptionServiceImpl implements IPrescriptionService {
         String event = "PRESCRIPTION_ISSUED:" + rx.getRxId() + ":" + resolvedContact;
         NotificationDelivery delivery = notifSvc.notify(event, resolvedContact);
         auditLog.log("NOTIFY_PHARMACIST:" + rx.getRxId() + ":" + delivery.getStatus(), null);
+    }
+
+    private void notifyPatientAndClinicianOnIssue(Prescription rx, Appointment appt) {
+        String patientRecipient = appt.getPatientId().toString();
+        String clinicianRecipient = appt.getClinicianId().toString();
+
+        String patientEvent = "Prescription issued for your appointment " + appt.getAppointmentId()
+            + ". Your appointment is now completed.";
+        NotificationDelivery patientDelivery = notifSvc.notify(patientEvent, patientRecipient);
+        auditLog.log("NOTIFY_PATIENT_RX_ISSUED:" + rx.getRxId() + ":" + patientDelivery.getStatus(), appt.getPatientId());
+
+        String clinicianEvent = "Prescription issued for patient " + appt.getPatientId()
+            + " (RX " + rx.getRxId() + "). Appointment " + appt.getAppointmentId() + " is completed.";
+        NotificationDelivery clinicianDelivery = notifSvc.notify(clinicianEvent, clinicianRecipient);
+        auditLog.log("NOTIFY_CLINICIAN_RX_ISSUED:" + rx.getRxId() + ":" + clinicianDelivery.getStatus(), appt.getClinicianId());
     }
 
     @Override

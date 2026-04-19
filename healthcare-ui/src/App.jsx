@@ -19,9 +19,9 @@ const DRUG_RULES = DRUG_CATALOG.reduce((acc, drug) => {
 
 const ROLE_TABS = {
   PATIENT: ['profile', 'appointments', 'prescriptions', 'medicalRecords', 'notifications'],
-  RECEPTIONIST: ['profile', 'patients', 'appointments', 'medicalRecords', 'notifications'],
+  RECEPTIONIST: ['profile', 'patients', 'appointments', 'medicalRecords'],
   CLINICIAN: ['profile', 'appointments', 'prescriptions', 'medicalRecords', 'notifications'],
-  PHARMACIST: ['profile', 'prescriptions', 'notifications'],
+  PHARMACIST: ['profile', 'prescriptions'],
   CLINIC_ADMIN: ['profile', 'users', 'patients', 'appointments', 'prescriptions', 'medicalRecords', 'notifications', 'audit'],
 }
 
@@ -137,6 +137,81 @@ function roleBadge(role) {
     default:
       return role
   }
+}
+
+function canReceiveAppointmentNotifications(role) {
+  return role === 'PATIENT' || role === 'CLINICIAN' || role === 'CLINIC_ADMIN'
+}
+
+function pushAppointmentNotifications(db, { appointment, sourceUserId, cancelledByPatient = false }) {
+  const patient = db.users.find((u) => u.userId === appointment.patientId)
+  const clinician = db.users.find((u) => u.userId === appointment.clinicianId)
+  const admin = db.users.find((u) => u.role === 'CLINIC_ADMIN')
+  const when = new Date(appointment.scheduledAt).toLocaleString()
+
+  const entries = [
+    {
+      user: patient,
+      event: appointment.status === 'CANCELLED'
+        ? `Your appointment with clinician ${clinician?.email || shortId(appointment.clinicianId)} at ${when} was cancelled.`
+        : `You have an appointment with clinician ${clinician?.email || shortId(appointment.clinicianId)} at ${when}.`,
+    },
+    {
+      user: clinician,
+      event: appointment.status === 'CANCELLED'
+        ? cancelledByPatient
+          ? `Patient ${patient?.email || shortId(appointment.patientId)} cancelled the appointment at ${when}.`
+          : `Appointment with patient ${patient?.email || shortId(appointment.patientId)} at ${when} was cancelled.`
+        : `New appointment from patient ${patient?.email || shortId(appointment.patientId)} at ${when}.`,
+    },
+    {
+      user: admin,
+      event: appointment.status === 'CANCELLED'
+        ? cancelledByPatient
+          ? `Patient-cancelled appointment: ${patient?.email || shortId(appointment.patientId)} with ${clinician?.email || shortId(appointment.clinicianId)} at ${when}.`
+          : `Appointment cancelled: ${patient?.email || shortId(appointment.patientId)} with ${clinician?.email || shortId(appointment.clinicianId)} at ${when}.`
+        : `Appointment scheduled: ${patient?.email || shortId(appointment.patientId)} with ${clinician?.email || shortId(appointment.clinicianId)} at ${when}.`,
+    },
+  ]
+
+  entries.forEach(({ user, event }) => {
+    if (!user || !canReceiveAppointmentNotifications(user.role)) return
+    enqueueNotification(db, {
+      event,
+      recipient: user.email,
+      userId: sourceUserId,
+      appointmentId: appointment.appointmentId,
+      source: 'APPOINTMENT',
+    })
+  })
+}
+
+function pushPrescriptionIssueNotifications(db, { rxId, appointment, sourceUserId }) {
+  const patient = db.users.find((u) => u.userId === appointment.patientId)
+  const clinician = db.users.find((u) => u.userId === appointment.clinicianId)
+  const when = appointment?.scheduledAt ? new Date(appointment.scheduledAt).toLocaleString() : 'scheduled time'
+
+  const entries = [
+    {
+      user: patient,
+      event: `Prescription ${shortId(rxId)} was issued for your appointment with clinician ${clinician?.email || shortId(appointment.clinicianId)} at ${when}. Appointment is now completed.`,
+    },
+    {
+      user: clinician,
+      event: `Prescription ${shortId(rxId)} was issued for patient ${patient?.email || shortId(appointment.patientId)}. Appointment is now completed.`,
+    },
+  ]
+
+  entries.forEach(({ user, event }) => {
+    if (!user || !canReceiveAppointmentNotifications(user.role)) return
+    enqueueNotification(db, {
+      event,
+      recipient: user.email,
+      userId: sourceUserId,
+      appointmentId: appointment.appointmentId,
+      source: 'PRESCRIPTION',
+    })
+  })
 }
 
 function shortId(value) {
@@ -1135,13 +1210,15 @@ function App() {
       if (!prerequisitesMet && overrideMissingPrerequisites) {
         addAudit(next, `SCHEDULE_OVERRIDE:${appointmentId}:${overrideReason}`, currentUserId, appointmentId)
       }
-      const patientEmail = next.users.find((u) => u.userId === patientId)?.email || null
-      enqueueNotification(next, {
-        event: `APPOINTMENT_SCHEDULED:${appointmentId}`,
-        recipient: patientEmail,
-        userId: currentUserId,
-        appointmentId,
-        source: 'APPOINTMENT',
+      pushAppointmentNotifications(next, {
+        appointment: {
+          appointmentId,
+          patientId,
+          clinicianId,
+          scheduledAt: scheduledAtIso,
+          status: 'PENDING',
+        },
+        sourceUserId: currentUserId,
       })
     }, 'Appointment scheduled.')
 
@@ -1206,13 +1283,10 @@ function App() {
       }
       appt.status = 'CANCELLED'
       addAudit(next, `CANCEL_APPOINTMENT:${appointmentId}`, currentUserId)
-      const patientEmail = next.users.find((u) => u.userId === appt.patientId)?.email || null
-      enqueueNotification(next, {
-        event: `APPOINTMENT_CANCELLED:${appointmentId}`,
-        recipient: patientEmail,
-        userId: currentUserId,
-        appointmentId,
-        source: 'APPOINTMENT',
+      pushAppointmentNotifications(next, {
+        appointment: appt,
+        sourceUserId: currentUserId,
+        cancelledByPatient: currentRole === 'PATIENT',
       })
     }, 'Appointment cancelled.')
   }
@@ -1375,7 +1449,19 @@ function App() {
 
       if (action === 'ISSUE') {
         if (rx.status !== 'DRAFT') throw new Error('Can only issue DRAFT prescriptions.')
-        if (!rx.reviewedAt) throw new Error('Review prescription before issuing.')
+        if (!rx.reviewedAt) {
+          const patient = next.patients.find((p) => p.userId === appt.patientId)
+          const result = evaluatePrescriptionConflicts(rx, appt, patient)
+          rx.lastConflict = result
+          if (result.hasConflict && !(rx.overrideReason || '').trim()) {
+            throw new Error('Conflict found. Add override reason or revise prescription before issue.')
+          }
+          rx.reviewedAt = nowStamp()
+          addAudit(next, `REVIEW_PRESCRIPTION:${rxId}:${result.hasConflict ? 'OVERRIDE' : 'NO_CONFLICT'}`, currentUserId)
+          if (result.hasConflict) {
+            addAudit(next, `CONFLICT_ALERT:${rxId}:${result.severity}`, currentUserId)
+          }
+        }
         if (rx.lastConflict?.hasConflict && !(rx.overrideReason || '').trim()) {
           throw new Error('Conflicts require override reason before issue.')
         }
@@ -1385,6 +1471,11 @@ function App() {
         addAudit(next, `ISSUE_PRESCRIPTION:${rxId}`, currentUserId)
         addAudit(next, `PRESCRIPTION_EVENT:ISSUED:${rxId}`, currentUserId)
         addAudit(next, `COMPLETE_APPOINTMENT:${appt.appointmentId}`, currentUserId)
+        pushPrescriptionIssueNotifications(next, {
+          rxId,
+          appointment: appt,
+          sourceUserId: currentUserId,
+        })
         const pharmacistContact = rx.pharmacistContact || 'pharmacist@clinic.com'
         const delivery = enqueueNotification(next, {
           event: `PRESCRIPTION_ISSUED:${rxId}`,
@@ -1394,7 +1485,7 @@ function App() {
           source: 'PRESCRIPTION',
         })
         addAudit(next, `NOTIFY_PHARMACIST:${rxId}:${delivery.status}`, currentUserId)
-        actionMessage = `Prescription issued. Notification ${delivery.status.toLowerCase()} (${pharmacistContact}).`
+        actionMessage = `Prescription issued, appointment completed, and patient/clinician notified. Pharmacist notification ${delivery.status.toLowerCase()} (${pharmacistContact}).`
         return
       }
 
@@ -1551,18 +1642,13 @@ function App() {
 
   const visibleNotifications = useMemo(() => {
     if (!currentRole) return []
+    if (!canReceiveAppointmentNotifications(currentRole)) return []
     if (currentRole === 'CLINIC_ADMIN') return db.notifications
 
     const currentEmail = normalizeToken(currentUser?.email)
     return db.notifications.filter((n) => {
       const recipient = normalizeToken(n.recipient)
-      if (recipient && (recipient === currentEmail || recipient === normalizeToken(currentUserId))) {
-        return true
-      }
-      if (currentRole === 'PHARMACIST' && recipient.includes('pharmacist')) {
-        return true
-      }
-      return n.userId === currentUserId
+      return recipient && (recipient === currentEmail || recipient === normalizeToken(currentUserId))
     })
   }, [db.notifications, currentRole, currentUser, currentUserId])
 
@@ -2420,7 +2506,7 @@ function App() {
                       {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
                         <button
                           type="button"
-                          disabled={r.status !== 'DRAFT' || !r.reviewedAt}
+                          disabled={r.status !== 'DRAFT'}
                           onClick={() => transitionPrescription(r.rxId, 'ISSUE')}
                         >
                           Approve & Issue
