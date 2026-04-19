@@ -589,7 +589,6 @@ function App() {
   }
 
   function can(action) {
-    if (!currentRole) return false
     if (action === 'CREATE_MEDICAL_RECORD') return currentRole === 'CLINICIAN'
     if (action === 'ADD_MEDICAL_NOTE') return currentRole === 'CLINICIAN'
     if (action === 'ARCHIVE_MEDICAL_RECORD') return currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN'
@@ -605,8 +604,8 @@ function App() {
 
     if (action === 'VIEW_PATIENT_PROFILE') return currentRole === 'PATIENT'
     if (action === 'MANAGE_PATIENTS') return currentRole === 'RECEPTIONIST'
-    if (action === 'SCHEDULE_APPOINTMENT') return currentRole === 'RECEPTIONIST' || currentRole === 'PATIENT'
-    if (action === 'CANCEL_APPOINTMENT') return currentRole === 'RECEPTIONIST' || currentRole === 'PATIENT'
+    if (action === 'SCHEDULE_APPOINTMENT') return currentRole === 'RECEPTIONIST'
+    if (action === 'CANCEL_APPOINTMENT') return currentRole === 'RECEPTIONIST'
     if (action === 'CREATE_PRESCRIPTION') return currentRole === 'CLINICIAN'
     if (action === 'ISSUE_PRESCRIPTION') return currentRole === 'CLINICIAN'
     if (action === 'DISPENSE_PRESCRIPTION') return currentRole === 'PHARMACIST'
@@ -1085,12 +1084,12 @@ function App() {
     )
     const roomConflict = roomId
       ? db.appointments.some(
-          (a) =>
-            a.roomId === roomId &&
-            a.scheduledAt === scheduledAtIso &&
-            a.status !== 'CANCELLED' &&
-            a.status !== 'COMPLETED',
-        )
+        (a) =>
+          a.roomId === roomId &&
+          a.scheduledAt === scheduledAtIso &&
+          a.status !== 'CANCELLED' &&
+          a.status !== 'COMPLETED',
+      )
       : false
 
     if (clinicianConflict || roomConflict) {
@@ -1192,7 +1191,7 @@ function App() {
 
   function cancelAppointment(appointmentId) {
     if (!can('CANCEL_APPOINTMENT') && !can('MANAGE_USERS')) {
-      notify('error', 'Only receptionist, patient, or admin can cancel appointments.')
+      notify('error', 'Only receptionist or admin can cancel appointments.')
       return
     }
 
@@ -1574,232 +1573,439 @@ function App() {
       <div className="blob blob-c" />
       <div className="grain" />
       <div className="page">
-      <header className="masthead">
-        <div>
-          <p className="eyebrow">Care Platform</p>
-          <h1>HealthCare</h1>
-          <p>Secure clinical workspace for appointments, prescriptions, and patient records.</p>
-        </div>
-        <div className="session-card">
-          <p>Current User</p>
-          {currentUser ? (
-            <>
-              <strong>{currentUser.email}</strong>
-              <button type="button" onClick={logout}>Logout</button>
-            </>
-          ) : (
-            <>
-              <strong>Not logged in</strong>
-              <small className="hint">Use sample credentials below.</small>
-            </>
-          )}
-        </div>
-      </header>
+        <header className="masthead">
+          <div>
+            <p className="eyebrow">Care Platform</p>
+            <h1>HealthCare</h1>
+            <p>Secure clinical workspace for appointments, prescriptions, and patient records.</p>
+          </div>
+          <div className="session-card">
+            <p>Current User</p>
+            {currentUser ? (
+              <>
+                <strong>{currentUser.email}</strong>
+                <button type="button" onClick={logout}>Logout</button>
+              </>
+            ) : (
+              <>
+                <strong>Not logged in</strong>
+                <small className="hint">Use sample credentials below.</small>
+              </>
+            )}
+          </div>
+        </header>
 
-      <section className="panel compact">
-        <strong>Demo Credentials:</strong>{' '}
-        <span>admin@clinic.com / admin123</span>{' | '}
-        <span>reception@clinic.com / recep123</span>{' | '}
-        <span>clinician@clinic.com / doc123</span>{' | '}
-        <span>pharmacist@clinic.com / pharma123</span>
-      </section>
+        <section className="panel compact">
+          <strong>Demo Credentials:</strong>{' '}
+          <span>admin@clinic.com / admin123</span>{' | '}
+          <span>reception@clinic.com / recep123</span>{' | '}
+          <span>clinician@clinic.com / doc123</span>{' | '}
+          <span>pharmacist@clinic.com / pharma123</span>
+        </section>
 
-      <nav className="tabs">
-        {visibleTabs.map((key) => (
-          <button
-            key={key}
-            className={tab === key ? 'active' : ''}
-            onClick={() => setTab(key)}
-            type="button"
-          >
-            {TAB_LABELS[key]}
-          </button>
-        ))}
-      </nav>
+        <nav className="tabs">
+          {visibleTabs.map((key) => (
+            <button
+              key={key}
+              className={tab === key ? 'active' : ''}
+              onClick={() => setTab(key)}
+              type="button"
+            >
+              {TAB_LABELS[key]}
+            </button>
+          ))}
+        </nav>
 
-      <div className={`notice ${notice.type}`}>{notice.text}</div>
+        <div className={`notice ${notice.type}`}>{notice.text}</div>
 
-      {tab === 'auth' && (
-        <section className="grid auth-stack">
-          <article className="panel">
-            <h2>Register Patient</h2>
-            <form onSubmit={registerPatient} className="form-grid">
+        {tab === 'auth' && (
+          <section className="grid auth-stack">
+            <article className="panel">
+              <h2>Register Patient</h2>
+              <form onSubmit={registerPatient} className="form-grid">
+                <label>
+                  Email
+                  <input
+                    value={registerForm.email}
+                    onChange={(e) => setRegisterForm((f) => ({ ...f, email: e.target.value }))}
+                    type="email"
+                    required
+                  />
+                </label>
+                <label>
+                  Password
+                  <input
+                    value={registerForm.password}
+                    onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
+                    type="password"
+                    required
+                  />
+                </label>
+                <label>
+                  DOB
+                  <input
+                    value={registerForm.dob}
+                    onChange={(e) => setRegisterForm((f) => ({ ...f, dob: e.target.value }))}
+                    type="date"
+                  />
+                </label>
+                <label>
+                  Insurance ID
+                  <input
+                    value={registerForm.insuranceId}
+                    onChange={(e) => setRegisterForm((f) => ({ ...f, insuranceId: e.target.value }))}
+                  />
+                </label>
+                <label className="full">
+                  Allergies (comma-separated)
+                  <input
+                    value={registerForm.allergies}
+                    onChange={(e) => setRegisterForm((f) => ({ ...f, allergies: e.target.value }))}
+                  />
+                </label>
+                <button type="submit">Register</button>
+              </form>
+            </article>
+
+            <article className="panel">
+              <h2>Login</h2>
+              <form onSubmit={login} className="form-grid">
+                <label>
+                  Email
+                  <input
+                    value={loginForm.email}
+                    onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
+                    type="email"
+                    required
+                  />
+                </label>
+                <label>
+                  Password
+                  <input
+                    value={loginForm.password}
+                    onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
+                    type="password"
+                    required
+                  />
+                </label>
+                <button type="submit">Login</button>
+              </form>
+              <p className="hint">Sign in to continue into your personalized workspace.</p>
+            </article>
+          </section>
+        )}
+
+        {tab === 'profile' && currentRole && (
+          <section className="panel">
+            <h2>My Profile</h2>
+            <form onSubmit={saveOwnUserProfile} className="form-grid top-gap">
+              <label>
+                User ID
+                <input value={currentUser?.userId || ''} readOnly />
+              </label>
               <label>
                 Email
                 <input
-                  value={registerForm.email}
-                  onChange={(e) => setRegisterForm((f) => ({ ...f, email: e.target.value }))}
                   type="email"
+                  value={userProfileEdit.email}
+                  onChange={(e) => setUserProfileEdit((p) => ({ ...p, email: e.target.value }))}
                   required
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  value={registerForm.password}
-                  onChange={(e) => setRegisterForm((f) => ({ ...f, password: e.target.value }))}
-                  type="password"
-                  required
-                />
-              </label>
-              <label>
-                DOB
-                <input
-                  value={registerForm.dob}
-                  onChange={(e) => setRegisterForm((f) => ({ ...f, dob: e.target.value }))}
-                  type="date"
-                />
-              </label>
-              <label>
-                Insurance ID
-                <input
-                  value={registerForm.insuranceId}
-                  onChange={(e) => setRegisterForm((f) => ({ ...f, insuranceId: e.target.value }))}
                 />
               </label>
               <label className="full">
-                Allergies (comma-separated)
+                New Password (optional)
                 <input
-                  value={registerForm.allergies}
-                  onChange={(e) => setRegisterForm((f) => ({ ...f, allergies: e.target.value }))}
-                />
-              </label>
-              <button type="submit">Register</button>
-            </form>
-          </article>
-
-          <article className="panel">
-            <h2>Login</h2>
-            <form onSubmit={login} className="form-grid">
-              <label>
-                Email
-                <input
-                  value={loginForm.email}
-                  onChange={(e) => setLoginForm((f) => ({ ...f, email: e.target.value }))}
-                  type="email"
-                  required
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  value={loginForm.password}
-                  onChange={(e) => setLoginForm((f) => ({ ...f, password: e.target.value }))}
                   type="password"
-                  required
+                  value={userProfileEdit.password}
+                  onChange={(e) => setUserProfileEdit((p) => ({ ...p, password: e.target.value }))}
                 />
               </label>
-              <button type="submit">Login</button>
+
+              {currentRole === 'RECEPTIONIST' && (
+                <>
+                  <label>
+                    Staff ID
+                    <input
+                      value={userProfileEdit.staffId}
+                      onChange={(e) => setUserProfileEdit((p) => ({ ...p, staffId: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Shift
+                    <input
+                      value={userProfileEdit.shift}
+                      onChange={(e) => setUserProfileEdit((p) => ({ ...p, shift: e.target.value }))}
+                    />
+                  </label>
+                </>
+              )}
+
+              {currentRole === 'CLINICIAN' && (
+                <>
+                  <label>
+                    Licence No
+                    <input
+                      value={userProfileEdit.licenceNo}
+                      onChange={(e) => setUserProfileEdit((p) => ({ ...p, licenceNo: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Speciality
+                    <input
+                      value={userProfileEdit.speciality}
+                      onChange={(e) => setUserProfileEdit((p) => ({ ...p, speciality: e.target.value }))}
+                    />
+                  </label>
+                </>
+              )}
+
+              {currentRole === 'PHARMACIST' && (
+                <>
+                  <label>
+                    Registration No
+                    <input
+                      value={userProfileEdit.regNo}
+                      onChange={(e) => setUserProfileEdit((p) => ({ ...p, regNo: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Pharmacy
+                    <input
+                      value={userProfileEdit.pharmacy}
+                      onChange={(e) => setUserProfileEdit((p) => ({ ...p, pharmacy: e.target.value }))}
+                    />
+                  </label>
+                </>
+              )}
+
+              {currentRole === 'CLINIC_ADMIN' && (
+                <label>
+                  Admin Level
+                  <input
+                    value={userProfileEdit.adminLevel}
+                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, adminLevel: e.target.value }))}
+                  />
+                </label>
+              )}
+
+              <button type="submit">Save Account Profile</button>
             </form>
-            <p className="hint">Sign in to continue into your personalized workspace.</p>
-          </article>
-        </section>
-      )}
 
-      {tab === 'profile' && currentRole && (
-        <section className="panel">
-          <h2>My Profile</h2>
-          <form onSubmit={saveOwnUserProfile} className="form-grid top-gap">
-            <label>
-              User ID
-              <input value={currentUser?.userId || ''} readOnly />
-            </label>
-            <label>
-              Email
-              <input
-                type="email"
-                value={userProfileEdit.email}
-                onChange={(e) => setUserProfileEdit((p) => ({ ...p, email: e.target.value }))}
-                required
-              />
-            </label>
-            <label className="full">
-              New Password (optional)
-              <input
-                type="password"
-                value={userProfileEdit.password}
-                onChange={(e) => setUserProfileEdit((p) => ({ ...p, password: e.target.value }))}
-              />
-            </label>
-
-            {currentRole === 'RECEPTIONIST' && (
+            {currentRole === 'PATIENT' && (
               <>
-                <label>
-                  Staff ID
-                  <input
-                    value={userProfileEdit.staffId}
-                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, staffId: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  Shift
-                  <input
-                    value={userProfileEdit.shift}
-                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, shift: e.target.value }))}
-                  />
-                </label>
+                <h3>Patient Details</h3>
+                {ownPatient ? (
+                  <form onSubmit={savePatientProfile} className="form-grid top-gap">
+                    <label>
+                      Patient ID
+                      <input value={ownPatient.userId} readOnly />
+                    </label>
+                    <label>
+                      DOB
+                      <input
+                        type="date"
+                        value={patientEdit.dob}
+                        onChange={(e) => setPatientEdit((p) => ({ ...p, dob: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Insurance ID
+                      <input
+                        value={patientEdit.insuranceId}
+                        onChange={(e) => setPatientEdit((p) => ({ ...p, insuranceId: e.target.value }))}
+                      />
+                    </label>
+                    <label className="full">
+                      Allergies
+                      <input
+                        value={patientEdit.allergies}
+                        onChange={(e) => setPatientEdit((p) => ({ ...p, allergies: e.target.value }))}
+                      />
+                    </label>
+                    <button type="submit">Save Patient Details</button>
+                  </form>
+                ) : (
+                  <p className="hint">No patient profile is mapped to this user.</p>
+                )}
               </>
             )}
+          </section>
+        )}
 
-            {currentRole === 'CLINICIAN' && (
-              <>
+        {tab === 'users' && currentRole === 'CLINIC_ADMIN' && (
+          <section className="grid two">
+            <article className="panel">
+              <h2>Create User by Role</h2>
+              <form onSubmit={createUserByRole} className="form-grid">
                 <label>
-                  Licence No
+                  Role
+                  <select
+                    value={userCreateForm.role}
+                    onChange={(e) => setUserCreateForm((f) => ({ ...f, role: e.target.value }))}
+                  >
+                    <option value="PATIENT">Patient</option>
+                    <option value="RECEPTIONIST">Receptionist</option>
+                    <option value="CLINICIAN">Clinician</option>
+                    <option value="PHARMACIST">Pharmacist</option>
+                    <option value="CLINIC_ADMIN">Admin</option>
+                  </select>
+                </label>
+                <label>
+                  Email
                   <input
-                    value={userProfileEdit.licenceNo}
-                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, licenceNo: e.target.value }))}
+                    value={userCreateForm.email}
+                    onChange={(e) => setUserCreateForm((f) => ({ ...f, email: e.target.value }))}
+                    type="email"
+                    required
                   />
                 </label>
                 <label>
-                  Speciality
+                  Password
                   <input
-                    value={userProfileEdit.speciality}
-                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, speciality: e.target.value }))}
+                    value={userCreateForm.password}
+                    onChange={(e) => setUserCreateForm((f) => ({ ...f, password: e.target.value }))}
+                    type="password"
+                    required
                   />
                 </label>
-              </>
-            )}
 
-            {currentRole === 'PHARMACIST' && (
-              <>
-                <label>
-                  Registration No
-                  <input
-                    value={userProfileEdit.regNo}
-                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, regNo: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  Pharmacy
-                  <input
-                    value={userProfileEdit.pharmacy}
-                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, pharmacy: e.target.value }))}
-                  />
-                </label>
-              </>
-            )}
+                {userCreateForm.role === 'CLINICIAN' && (
+                  <>
+                    <label>
+                      Licence No
+                      <input
+                        value={userCreateForm.licenceNo}
+                        onChange={(e) =>
+                          setUserCreateForm((f) => ({ ...f, licenceNo: e.target.value }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Speciality
+                      <input
+                        value={userCreateForm.speciality}
+                        onChange={(e) =>
+                          setUserCreateForm((f) => ({ ...f, speciality: e.target.value }))
+                        }
+                      />
+                    </label>
+                  </>
+                )}
 
-            {currentRole === 'CLINIC_ADMIN' && (
+                {userCreateForm.role === 'RECEPTIONIST' && (
+                  <>
+                    <label>
+                      Staff ID
+                      <input
+                        value={userCreateForm.staffId}
+                        onChange={(e) =>
+                          setUserCreateForm((f) => ({ ...f, staffId: e.target.value }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      Shift
+                      <input
+                        value={userCreateForm.shift}
+                        onChange={(e) => setUserCreateForm((f) => ({ ...f, shift: e.target.value }))}
+                      />
+                    </label>
+                  </>
+                )}
+
+                {userCreateForm.role === 'PHARMACIST' && (
+                  <>
+                    <label>
+                      Registration No
+                      <input
+                        value={userCreateForm.regNo}
+                        onChange={(e) => setUserCreateForm((f) => ({ ...f, regNo: e.target.value }))}
+                      />
+                    </label>
+                    <label>
+                      Pharmacy
+                      <input
+                        value={userCreateForm.pharmacy}
+                        onChange={(e) =>
+                          setUserCreateForm((f) => ({ ...f, pharmacy: e.target.value }))
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+
+                {userCreateForm.role === 'CLINIC_ADMIN' && (
+                  <label className="full">
+                    Admin Level
+                    <input
+                      value={userCreateForm.adminLevel}
+                      onChange={(e) =>
+                        setUserCreateForm((f) => ({ ...f, adminLevel: e.target.value }))
+                      }
+                    />
+                  </label>
+                )}
+
+                <button type="submit">Create User</button>
+              </form>
+            </article>
+
+            <article className="panel">
+              <h2>All Users ({db.users.length})</h2>
+              <div className="scroll-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>User ID</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {db.users.map((u) => (
+                      <tr key={u.userId}>
+                        <td>{u.email}</td>
+                        <td>{roleBadge(u.role)}</td>
+                        <td>
+                          <strong>{shortId(u.userId)}</strong>
+                          <small>{u.userId}</small>
+                          <button type="button" onClick={() => copyId('User ID', u.userId)}>
+                            Copy ID
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        )}
+
+        {tab === 'patients' && (currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN') && (
+          <section className="grid two">
+            <article className="panel">
+              <h2>Find + Update Patient</h2>
               <label>
-                Admin Level
-                <input
-                  value={userProfileEdit.adminLevel}
-                  onChange={(e) => setUserProfileEdit((p) => ({ ...p, adminLevel: e.target.value }))}
-                />
+                Select Patient
+                <select
+                  value={selectedPatientId}
+                  onChange={(e) => setSelectedPatientId(e.target.value)}
+                >
+                  <option value="">Choose patient...</option>
+                  {patientOptions.map((p) => (
+                    <option key={p.userId} value={p.userId}>
+                      {p.email} ({shortId(p.userId)})
+                    </option>
+                  ))}
+                </select>
               </label>
-            )}
 
-            <button type="submit">Save Account Profile</button>
-          </form>
-
-          {currentRole === 'PATIENT' && (
-            <>
-              <h3>Patient Details</h3>
-              {ownPatient ? (
+              {selectedPatient ? (
                 <form onSubmit={savePatientProfile} className="form-grid top-gap">
                   <label>
                     Patient ID
-                    <input value={ownPatient.userId} readOnly />
+                    <input value={patientEdit.userId} readOnly />
                   </label>
                   <label>
                     DOB
@@ -1823,837 +2029,621 @@ function App() {
                       onChange={(e) => setPatientEdit((p) => ({ ...p, allergies: e.target.value }))}
                     />
                   </label>
-                  <button type="submit">Save Patient Details</button>
+                  <button type="submit">Save Profile</button>
                 </form>
               ) : (
-                <p className="hint">No patient profile is mapped to this user.</p>
+                <p className="hint top-gap">Search a patient to edit details.</p>
               )}
-            </>
-          )}
-        </section>
-      )}
-
-      {tab === 'users' && currentRole === 'CLINIC_ADMIN' && (
-        <section className="grid two">
-          <article className="panel">
-            <h2>Create User by Role</h2>
-            <form onSubmit={createUserByRole} className="form-grid">
-              <label>
-                Role
-                <select
-                  value={userCreateForm.role}
-                  onChange={(e) => setUserCreateForm((f) => ({ ...f, role: e.target.value }))}
-                >
-                  <option value="PATIENT">Patient</option>
-                  <option value="RECEPTIONIST">Receptionist</option>
-                  <option value="CLINICIAN">Clinician</option>
-                  <option value="PHARMACIST">Pharmacist</option>
-                  <option value="CLINIC_ADMIN">Admin</option>
-                </select>
-              </label>
-              <label>
-                Email
-                <input
-                  value={userCreateForm.email}
-                  onChange={(e) => setUserCreateForm((f) => ({ ...f, email: e.target.value }))}
-                  type="email"
-                  required
-                />
-              </label>
-              <label>
-                Password
-                <input
-                  value={userCreateForm.password}
-                  onChange={(e) => setUserCreateForm((f) => ({ ...f, password: e.target.value }))}
-                  type="password"
-                  required
-                />
-              </label>
-
-              {userCreateForm.role === 'CLINICIAN' && (
-                <>
-                  <label>
-                    Licence No
-                    <input
-                      value={userCreateForm.licenceNo}
-                      onChange={(e) =>
-                        setUserCreateForm((f) => ({ ...f, licenceNo: e.target.value }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Speciality
-                    <input
-                      value={userCreateForm.speciality}
-                      onChange={(e) =>
-                        setUserCreateForm((f) => ({ ...f, speciality: e.target.value }))
-                      }
-                    />
-                  </label>
-                </>
-              )}
-
-              {userCreateForm.role === 'RECEPTIONIST' && (
-                <>
-                  <label>
-                    Staff ID
-                    <input
-                      value={userCreateForm.staffId}
-                      onChange={(e) =>
-                        setUserCreateForm((f) => ({ ...f, staffId: e.target.value }))
-                      }
-                    />
-                  </label>
-                  <label>
-                    Shift
-                    <input
-                      value={userCreateForm.shift}
-                      onChange={(e) => setUserCreateForm((f) => ({ ...f, shift: e.target.value }))}
-                    />
-                  </label>
-                </>
-              )}
-
-              {userCreateForm.role === 'PHARMACIST' && (
-                <>
-                  <label>
-                    Registration No
-                    <input
-                      value={userCreateForm.regNo}
-                      onChange={(e) => setUserCreateForm((f) => ({ ...f, regNo: e.target.value }))}
-                    />
-                  </label>
-                  <label>
-                    Pharmacy
-                    <input
-                      value={userCreateForm.pharmacy}
-                      onChange={(e) =>
-                        setUserCreateForm((f) => ({ ...f, pharmacy: e.target.value }))
-                      }
-                    />
-                  </label>
-                </>
-              )}
-
-              {userCreateForm.role === 'CLINIC_ADMIN' && (
-                <label className="full">
-                  Admin Level
-                  <input
-                    value={userCreateForm.adminLevel}
-                    onChange={(e) =>
-                      setUserCreateForm((f) => ({ ...f, adminLevel: e.target.value }))
-                    }
-                  />
-                </label>
-              )}
-
-              <button type="submit">Create User</button>
-            </form>
-          </article>
-
-          <article className="panel">
-            <h2>All Users ({db.users.length})</h2>
-            <div className="scroll-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Role</th>
-                    <th>User ID</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {db.users.map((u) => (
-                    <tr key={u.userId}>
-                      <td>{u.email}</td>
-                      <td>{roleBadge(u.role)}</td>
-                      <td>
-                        <strong>{shortId(u.userId)}</strong>
-                        <small>{u.userId}</small>
-                        <button type="button" onClick={() => copyId('User ID', u.userId)}>
-                          Copy ID
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        </section>
-      )}
-
-      {tab === 'patients' && (currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN') && (
-        <section className="grid two">
-          <article className="panel">
-            <h2>Find + Update Patient</h2>
-            <label>
-              Select Patient
-              <select
-                value={selectedPatientId}
-                onChange={(e) => setSelectedPatientId(e.target.value)}
-              >
-                <option value="">Choose patient...</option>
-                {patientOptions.map((p) => (
-                  <option key={p.userId} value={p.userId}>
-                    {p.email} ({shortId(p.userId)})
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            {selectedPatient ? (
-              <form onSubmit={savePatientProfile} className="form-grid top-gap">
-                <label>
-                  Patient ID
-                  <input value={patientEdit.userId} readOnly />
-                </label>
-                <label>
-                  DOB
-                  <input
-                    type="date"
-                    value={patientEdit.dob}
-                    onChange={(e) => setPatientEdit((p) => ({ ...p, dob: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  Insurance ID
-                  <input
-                    value={patientEdit.insuranceId}
-                    onChange={(e) => setPatientEdit((p) => ({ ...p, insuranceId: e.target.value }))}
-                  />
-                </label>
-                <label className="full">
-                  Allergies
-                  <input
-                    value={patientEdit.allergies}
-                    onChange={(e) => setPatientEdit((p) => ({ ...p, allergies: e.target.value }))}
-                  />
-                </label>
-                <button type="submit">Save Profile</button>
-              </form>
-            ) : (
-              <p className="hint top-gap">Search a patient to edit details.</p>
-            )}
-          </article>
-
-          <article className="panel">
-            <h2>Registered Patients ({patientRows.length})</h2>
-            <div className="scroll-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Email</th>
-                    <th>Patient ID</th>
-                    <th>DOB</th>
-                    <th>Insurance</th>
-                    <th>Allergies</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {patientRows.map((p) => (
-                    <tr key={p.userId}>
-                      <td>
-                        <strong>{p.email}</strong>
-                      </td>
-                      <td>
-                        <strong>{shortId(p.userId)}</strong>
-                        <small>{p.userId}</small>
-                        <button type="button" onClick={() => copyId('Patient ID', p.userId)}>
-                          Copy ID
-                        </button>
-                      </td>
-                      <td>{p.dob || '-'}</td>
-                      <td>{p.insuranceId || '-'}</td>
-                      <td>{(p.allergies || []).join(', ') || '-'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        </section>
-      )}
-
-      {tab === 'appointments' && (
-        <section className="panel">
-          {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN' || currentRole === 'PATIENT') && (
-            <>
-              <h2>Schedule Appointment</h2>
-              <form onSubmit={scheduleAppointment} className="form-grid">
-                <label>
-                  Patient
-                  <select
-                    value={appointmentForm.patientId}
-                    onChange={(e) =>
-                      setAppointmentForm((f) => ({ ...f, patientId: e.target.value }))
-                    }
-                    disabled={currentRole === 'PATIENT'}
-                    required
-                  >
-                    {currentRole === 'PATIENT' ? (
-                      <option value={currentUserId}>
-                        {usersById.get(currentUserId)?.email || 'My profile'} ({shortId(currentUserId)})
-                      </option>
-                    ) : (
-                      <>
-                        <option value="">Choose patient...</option>
-                        {patientOptions.map((p) => (
-                          <option key={p.userId} value={p.userId}>
-                            {p.email} ({shortId(p.userId)})
-                          </option>
-                        ))}
-                      </>
-                    )}
-                  </select>
-                </label>
-                <label>
-                  Clinician
-                  <select
-                    value={appointmentForm.clinicianId}
-                    onChange={(e) =>
-                      setAppointmentForm((f) => ({ ...f, clinicianId: e.target.value }))
-                    }
-                    required
-                  >
-                    <option value="">Choose clinician...</option>
-                    {clinicians.map((c) => (
-                      <option key={c.userId} value={c.userId}>
-                        {c.email} ({shortId(c.userId)})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="full">
-                  Scheduled At
-                  <input
-                    value={appointmentForm.scheduledAt}
-                    onChange={(e) =>
-                      setAppointmentForm((f) => ({ ...f, scheduledAt: e.target.value }))
-                    }
-                    type="datetime-local"
-                    required
-                  />
-                </label>
-                <label className="full">
-                  Reason For Visit
-                  <input
-                    value={appointmentForm.reasonForVisit}
-                    onChange={(e) =>
-                      setAppointmentForm((f) => ({ ...f, reasonForVisit: e.target.value }))
-                    }
-                    placeholder="Short clinical reason"
-                    required
-                  />
-                </label>
-                <label>
-                  Room ID (optional)
-                  <input
-                    value={appointmentForm.roomId}
-                    onChange={(e) =>
-                      setAppointmentForm((f) => ({ ...f, roomId: e.target.value }))
-                    }
-                    placeholder="e.g., A101"
-                  />
-                </label>
-                <label>
-                  Referral Available
-                  <select
-                    value={appointmentForm.referralsMet ? 'YES' : 'NO'}
-                    onChange={(e) =>
-                      setAppointmentForm((f) => ({ ...f, referralsMet: e.target.value === 'YES' }))
-                    }
-                  >
-                    <option value="YES">Yes</option>
-                    <option value="NO">No</option>
-                  </select>
-                </label>
-                <label>
-                  Prior Visit Verified
-                  <select
-                    value={appointmentForm.priorVisitsMet ? 'YES' : 'NO'}
-                    onChange={(e) =>
-                      setAppointmentForm((f) => ({ ...f, priorVisitsMet: e.target.value === 'YES' }))
-                    }
-                  >
-                    <option value="YES">Yes</option>
-                    <option value="NO">No</option>
-                  </select>
-                </label>
-                {(!appointmentForm.referralsMet || !appointmentForm.priorVisitsMet) && (
-                  <>
-                    <label className="full">
-                      Override Missing Prerequisites?
-                      <select
-                        value={appointmentForm.overrideMissingPrerequisites ? 'YES' : 'NO'}
-                        onChange={(e) =>
-                          setAppointmentForm((f) => ({
-                            ...f,
-                            overrideMissingPrerequisites: e.target.value === 'YES',
-                          }))
-                        }
-                      >
-                        <option value="NO">No (Abort)</option>
-                        <option value="YES">Yes (Override)</option>
-                      </select>
-                    </label>
-                    {appointmentForm.overrideMissingPrerequisites && (
-                      <label className="full">
-                        Override Reason
-                        <input
-                          value={appointmentForm.overrideReason}
-                          onChange={(e) =>
-                            setAppointmentForm((f) => ({ ...f, overrideReason: e.target.value }))
-                          }
-                          placeholder="Justification for override"
-                          required
-                        />
-                      </label>
-                    )}
-                  </>
-                )}
-                <button type="submit">Schedule</button>
-              </form>
-              {unavailableRequest && (
-                <div className="panel compact top-gap">
-                  <strong>Requested slot unavailable.</strong>{' '}
-                  Join waitlist or pick a different date/time.
-                  <div className="row-actions top-gap">
-                    <button type="button" onClick={joinWaitlistForUnavailableRequest}>
-                      Join Waitlist
-                    </button>
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          <h3>Visible Appointments ({appointmentRows.length})</h3>
-          <div className="appointment-list">
-            {appointmentRows.map((a) => (
-              <div className="appointment-card" key={a.appointmentId}>
-                <p>
-                  <strong>{shortId(a.appointmentId)}</strong>
-                  <span className={`status ${a.status.toLowerCase()}`}>{a.status}</span>
-                </p>
-                <small>
-                  Appointment ID: {a.appointmentId}
-                  <button
-                    type="button"
-                    onClick={() => copyId('Appointment ID', a.appointmentId)}
-                  >
-                    Copy ID
-                  </button>
-                </small>
-                <small>
-                  {a.patientEmail} {'->'} {a.clinicianEmail}
-                </small>
-                <small>{new Date(a.scheduledAt).toLocaleString()}</small>
-                <small>Reason: {a.reasonForVisit || '-'}</small>
-                <small>Room: {a.roomId || '-'}</small>
-                <small>
-                  Prerequisites: referral={a.referralsMet === false ? 'NO' : 'YES'}, priorVisit={a.priorVisitsMet === false ? 'NO' : 'YES'}
-                </small>
-                {a.overrideReason ? <small>Override: {a.overrideReason}</small> : null}
-                {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN' || currentRole === 'PATIENT') && (
-                  <button
-                    type="button"
-                    disabled={a.status === 'CANCELLED' || a.status === 'COMPLETED'}
-                    onClick={() => cancelAppointment(a.appointmentId)}
-                  >
-                    Cancel
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <h3>Waitlist ({waitlistRows.length})</h3>
-          <div className="appointment-list">
-            {waitlistRows.map((w) => (
-              <div className="appointment-card" key={w.waitlistId}>
-                <p>
-                  <strong>{shortId(w.waitlistId)}</strong>
-                  <span className="status pending">WAITLIST</span>
-                </p>
-                <small>Patient: {w.patientEmail}</small>
-                <small>Clinician: {w.clinicianEmail}</small>
-                <small>Requested Slot: {new Date(w.requestedSlot).toLocaleString()}</small>
-                <small>Room: {w.roomId || '-'}</small>
-                <small>Reason: {w.reasonForVisit || '-'}</small>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {tab === 'prescriptions' && (
-        <section className="grid two">
-          {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
-            <article className="panel">
-              <h2>Create Prescription</h2>
-              <form onSubmit={createPrescription} className="form-grid">
-                <label>
-                  Appointment
-                  <select
-                    value={rxForm.appointmentId}
-                    onChange={(e) => setRxForm((f) => ({ ...f, appointmentId: e.target.value }))}
-                    required
-                  >
-                    <option value="">Choose appointment...</option>
-                    {rxAppointmentOptions.map((a) => (
-                      <option key={a.appointmentId} value={a.appointmentId}>
-                        {shortId(a.appointmentId)} - {usersById.get(a.patientId)?.email || 'unknown'}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="full">
-                  Drug
-                  <select
-                    value={rxForm.drugName}
-                    onChange={(e) => setRxForm((f) => ({ ...f, drugName: e.target.value }))}
-                    required
-                  >
-                    {DRUG_CATALOG.map((drug) => (
-                      <option key={drug.name} value={drug.name}>
-                        {drug.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Dosage
-                  <input
-                    value={rxForm.dosage}
-                    onChange={(e) => setRxForm((f) => ({ ...f, dosage: e.target.value }))}
-                    placeholder="e.g. 500 mg"
-                    required
-                  />
-                </label>
-                <label>
-                  Frequency
-                  <input
-                    value={rxForm.frequency}
-                    onChange={(e) => setRxForm((f) => ({ ...f, frequency: e.target.value }))}
-                    placeholder="e.g. twice daily"
-                    required
-                  />
-                </label>
-                <label>
-                  Duration (days)
-                  <input
-                    value={rxForm.durationDays}
-                    onChange={(e) => setRxForm((f) => ({ ...f, durationDays: e.target.value }))}
-                    type="number"
-                    min="1"
-                    required
-                  />
-                </label>
-                <label>
-                  Pharmacist Contact
-                  <input
-                    value={rxForm.pharmacistContact}
-                    onChange={(e) => setRxForm((f) => ({ ...f, pharmacistContact: e.target.value }))}
-                    placeholder="pharmacist@clinic.com"
-                  />
-                </label>
-                <label className="full">
-                  Override Reason (optional)
-                  <input
-                    value={rxForm.overrideReason}
-                    onChange={(e) => setRxForm((f) => ({ ...f, overrideReason: e.target.value }))}
-                  />
-                </label>
-                <button type="submit">Create RX</button>
-              </form>
             </article>
-          )}
 
-          <article className="panel">
-            <h2>Visible Prescriptions ({rxRows.length})</h2>
+            <article className="panel">
+              <h2>Registered Patients ({patientRows.length})</h2>
+              <div className="scroll-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Patient ID</th>
+                      <th>DOB</th>
+                      <th>Insurance</th>
+                      <th>Allergies</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {patientRows.map((p) => (
+                      <tr key={p.userId}>
+                        <td>
+                          <strong>{p.email}</strong>
+                        </td>
+                        <td>
+                          <strong>{shortId(p.userId)}</strong>
+                          <small>{p.userId}</small>
+                          <button type="button" onClick={() => copyId('Patient ID', p.userId)}>
+                            Copy ID
+                          </button>
+                        </td>
+                        <td>{p.dob || '-'}</td>
+                        <td>{p.insuranceId || '-'}</td>
+                        <td>{(p.allergies || []).join(', ') || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        )}
+
+        {tab === 'appointments' && (
+          <section className="panel">
+            {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN') && (
+              <>
+                <h2>Schedule Appointment</h2>
+                <form onSubmit={scheduleAppointment} className="form-grid">
+                  <label>
+                    Patient
+                    <select
+                      value={appointmentForm.patientId}
+                      onChange={(e) =>
+                        setAppointmentForm((f) => ({ ...f, patientId: e.target.value }))
+                      }
+                      required
+                    >
+                      <option value="">Choose patient...</option>
+                      {patientOptions.map((p) => (
+                        <option key={p.userId} value={p.userId}>
+                          {p.email} ({shortId(p.userId)})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Clinician
+                    <select
+                      value={appointmentForm.clinicianId}
+                      onChange={(e) =>
+                        setAppointmentForm((f) => ({ ...f, clinicianId: e.target.value }))
+                      }
+                      required
+                    >
+                      <option value="">Choose clinician...</option>
+                      {clinicians.map((c) => (
+                        <option key={c.userId} value={c.userId}>
+                          {c.email} ({shortId(c.userId)})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="full">
+                    Scheduled At
+                    <input
+                      value={appointmentForm.scheduledAt}
+                      onChange={(e) =>
+                        setAppointmentForm((f) => ({ ...f, scheduledAt: e.target.value }))
+                      }
+                      type="datetime-local"
+                      required
+                    />
+                  </label>
+                  <label className="full">
+                    Reason For Visit
+                    <input
+                      value={appointmentForm.reasonForVisit}
+                      onChange={(e) =>
+                        setAppointmentForm((f) => ({ ...f, reasonForVisit: e.target.value }))
+                      }
+                      placeholder="Short clinical reason"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Room ID (optional)
+                    <input
+                      value={appointmentForm.roomId}
+                      onChange={(e) =>
+                        setAppointmentForm((f) => ({ ...f, roomId: e.target.value }))
+                      }
+                      placeholder="e.g., A101"
+                    />
+                  </label>
+                  <label>
+                    Referral Available
+                    <select
+                      value={appointmentForm.referralsMet ? 'YES' : 'NO'}
+                      onChange={(e) =>
+                        setAppointmentForm((f) => ({ ...f, referralsMet: e.target.value === 'YES' }))
+                      }
+                    >
+                      <option value="YES">Yes</option>
+                      <option value="NO">No</option>
+                    </select>
+                  </label>
+                  <label>
+                    Prior Visit Verified
+                    <select
+                      value={appointmentForm.priorVisitsMet ? 'YES' : 'NO'}
+                      onChange={(e) =>
+                        setAppointmentForm((f) => ({ ...f, priorVisitsMet: e.target.value === 'YES' }))
+                      }
+                    >
+                      <option value="YES">Yes</option>
+                      <option value="NO">No</option>
+                    </select>
+                  </label>
+                  {(!appointmentForm.referralsMet || !appointmentForm.priorVisitsMet) && (
+                    <>
+                      <label className="full">
+                        Override Missing Prerequisites?
+                        <select
+                          value={appointmentForm.overrideMissingPrerequisites ? 'YES' : 'NO'}
+                          onChange={(e) =>
+                            setAppointmentForm((f) => ({
+                              ...f,
+                              overrideMissingPrerequisites: e.target.value === 'YES',
+                            }))
+                          }
+                        >
+                          <option value="NO">No (Abort)</option>
+                          <option value="YES">Yes (Override)</option>
+                        </select>
+                      </label>
+                      {appointmentForm.overrideMissingPrerequisites && (
+                        <label className="full">
+                          Override Reason
+                          <input
+                            value={appointmentForm.overrideReason}
+                            onChange={(e) =>
+                              setAppointmentForm((f) => ({ ...f, overrideReason: e.target.value }))
+                            }
+                            placeholder="Justification for override"
+                            required
+                          />
+                        </label>
+                      )}
+                    </>
+                  )}
+                  <button type="submit">Schedule</button>
+                </form>
+                {unavailableRequest && (
+                  <div className="panel compact top-gap">
+                    <strong>Requested slot unavailable.</strong>{' '}
+                    Join waitlist or pick a different date/time.
+                    <div className="row-actions top-gap">
+                      <button type="button" onClick={joinWaitlistForUnavailableRequest}>
+                        Join Waitlist
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            <h3>Visible Appointments ({appointmentRows.length})</h3>
             <div className="appointment-list">
-              {rxRows.map((r) => (
-                <div className="appointment-card" key={r.rxId}>
+              {appointmentRows.map((a) => (
+                <div className="appointment-card" key={a.appointmentId}>
                   <p>
-                    <strong>{shortId(r.rxId)}</strong>
-                    <span className={`status ${r.status.toLowerCase()}`}>{r.status}</span>
+                    <strong>{shortId(a.appointmentId)}</strong>
+                    <span className={`status ${a.status.toLowerCase()}`}>{a.status}</span>
                   </p>
                   <small>
-                    Prescription ID: {r.rxId}
-                    <button type="button" onClick={() => copyId('Prescription ID', r.rxId)}>
-                      Copy ID
-                    </button>
-                  </small>
-                  <small>
-                    Appointment: {r.appointmentId}
+                    Appointment ID: {a.appointmentId}
                     <button
                       type="button"
-                      onClick={() => copyId('Appointment ID', r.appointmentId)}
+                      onClick={() => copyId('Appointment ID', a.appointmentId)}
                     >
                       Copy ID
                     </button>
                   </small>
-                  <small>Issued At: {r.issuedAt ? new Date(r.issuedAt).toLocaleString() : '-'}</small>
-                  {r.primaryItem ? (
+                  <small>
+                    {a.patientEmail} {'->'} {a.clinicianEmail}
+                  </small>
+                  <small>{new Date(a.scheduledAt).toLocaleString()}</small>
+                  <small>Reason: {a.reasonForVisit || '-'}</small>
+                  <small>Room: {a.roomId || '-'}</small>
+                  <small>
+                    Prerequisites: referral={a.referralsMet === false ? 'NO' : 'YES'}, priorVisit={a.priorVisitsMet === false ? 'NO' : 'YES'}
+                  </small>
+                  {a.overrideReason ? <small>Override: {a.overrideReason}</small> : null}
+                  {(currentRole === 'RECEPTIONIST' || currentRole === 'CLINIC_ADMIN') && (
+                    <button
+                      type="button"
+                      disabled={a.status === 'CANCELLED' || a.status === 'COMPLETED'}
+                      onClick={() => cancelAppointment(a.appointmentId)}
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <h3>Waitlist ({waitlistRows.length})</h3>
+            <div className="appointment-list">
+              {waitlistRows.map((w) => (
+                <div className="appointment-card" key={w.waitlistId}>
+                  <p>
+                    <strong>{shortId(w.waitlistId)}</strong>
+                    <span className="status pending">WAITLIST</span>
+                  </p>
+                  <small>Patient: {w.patientEmail}</small>
+                  <small>Clinician: {w.clinicianEmail}</small>
+                  <small>Requested Slot: {new Date(w.requestedSlot).toLocaleString()}</small>
+                  <small>Room: {w.roomId || '-'}</small>
+                  <small>Reason: {w.reasonForVisit || '-'}</small>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {tab === 'prescriptions' && (
+          <section className="grid two">
+            {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+              <article className="panel">
+                <h2>Create Prescription</h2>
+                <form onSubmit={createPrescription} className="form-grid">
+                  <label>
+                    Appointment
+                    <select
+                      value={rxForm.appointmentId}
+                      onChange={(e) => setRxForm((f) => ({ ...f, appointmentId: e.target.value }))}
+                      required
+                    >
+                      <option value="">Choose appointment...</option>
+                      {rxAppointmentOptions.map((a) => (
+                        <option key={a.appointmentId} value={a.appointmentId}>
+                          {shortId(a.appointmentId)} - {usersById.get(a.patientId)?.email || 'unknown'}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="full">
+                    Drug
+                    <select
+                      value={rxForm.drugName}
+                      onChange={(e) => setRxForm((f) => ({ ...f, drugName: e.target.value }))}
+                      required
+                    >
+                      {DRUG_CATALOG.map((drug) => (
+                        <option key={drug.name} value={drug.name}>
+                          {drug.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Dosage
+                    <input
+                      value={rxForm.dosage}
+                      onChange={(e) => setRxForm((f) => ({ ...f, dosage: e.target.value }))}
+                      placeholder="e.g. 500 mg"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Frequency
+                    <input
+                      value={rxForm.frequency}
+                      onChange={(e) => setRxForm((f) => ({ ...f, frequency: e.target.value }))}
+                      placeholder="e.g. twice daily"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Duration (days)
+                    <input
+                      value={rxForm.durationDays}
+                      onChange={(e) => setRxForm((f) => ({ ...f, durationDays: e.target.value }))}
+                      type="number"
+                      min="1"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Pharmacist Contact
+                    <input
+                      value={rxForm.pharmacistContact}
+                      onChange={(e) => setRxForm((f) => ({ ...f, pharmacistContact: e.target.value }))}
+                      placeholder="pharmacist@clinic.com"
+                    />
+                  </label>
+                  <label className="full">
+                    Override Reason (optional)
+                    <input
+                      value={rxForm.overrideReason}
+                      onChange={(e) => setRxForm((f) => ({ ...f, overrideReason: e.target.value }))}
+                    />
+                  </label>
+                  <button type="submit">Create RX</button>
+                </form>
+              </article>
+            )}
+
+            <article className="panel">
+              <h2>Visible Prescriptions ({rxRows.length})</h2>
+              <div className="appointment-list">
+                {rxRows.map((r) => (
+                  <div className="appointment-card" key={r.rxId}>
+                    <p>
+                      <strong>{shortId(r.rxId)}</strong>
+                      <span className={`status ${r.status.toLowerCase()}`}>{r.status}</span>
+                    </p>
                     <small>
-                      Medication: {r.primaryItem.drugName} | {r.primaryItem.dosage} | {r.primaryItem.frequency} | {r.primaryItem.durationDays}d
+                      Prescription ID: {r.rxId}
+                      <button type="button" onClick={() => copyId('Prescription ID', r.rxId)}>
+                        Copy ID
+                      </button>
                     </small>
-                  ) : null}
-                  {r.overrideReason ? <small>Override: {r.overrideReason}</small> : null}
-                  <small>Reviewed At: {r.reviewedAt ? new Date(r.reviewedAt).toLocaleString() : '-'}</small>
-                  {r.lastConflict ? (
-                    <small className={r.lastConflict.hasConflict ? 'conflict-pill high' : 'conflict-pill low'}>
-                      {r.lastConflict.hasConflict
-                        ? `Conflict ${r.lastConflict.severity}: ${r.lastConflict.conflicts.join(' | ')}`
-                        : 'No conflicts found. Ready for review.'}
+                    <small>
+                      Appointment: {r.appointmentId}
+                      <button
+                        type="button"
+                        onClick={() => copyId('Appointment ID', r.appointmentId)}
+                      >
+                        Copy ID
+                      </button>
                     </small>
-                  ) : null}
-                  <div className="row-actions">
-                    {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
-                      <button
-                        type="button"
-                        disabled={r.status !== 'DRAFT'}
-                        onClick={() => checkPrescriptionConflicts(r.rxId)}
-                      >
-                        Check Conflicts
+                    <small>Issued At: {r.issuedAt ? new Date(r.issuedAt).toLocaleString() : '-'}</small>
+                    {r.primaryItem ? (
+                      <small>
+                        Medication: {r.primaryItem.drugName} | {r.primaryItem.dosage} | {r.primaryItem.frequency} | {r.primaryItem.durationDays}d
+                      </small>
+                    ) : null}
+                    {r.overrideReason ? <small>Override: {r.overrideReason}</small> : null}
+                    <small>Reviewed At: {r.reviewedAt ? new Date(r.reviewedAt).toLocaleString() : '-'}</small>
+                    {r.lastConflict ? (
+                      <small className={r.lastConflict.hasConflict ? 'conflict-pill high' : 'conflict-pill low'}>
+                        {r.lastConflict.hasConflict
+                          ? `Conflict ${r.lastConflict.severity}: ${r.lastConflict.conflicts.join(' | ')}`
+                          : 'No conflicts found. Ready for review.'}
+                      </small>
+                    ) : null}
+                    <div className="row-actions">
+                      {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+                        <button
+                          type="button"
+                          disabled={r.status !== 'DRAFT'}
+                          onClick={() => checkPrescriptionConflicts(r.rxId)}
+                        >
+                          Check Conflicts
+                        </button>
+                      )}
+                      {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+                        <button
+                          type="button"
+                          disabled={r.status !== 'DRAFT'}
+                          onClick={() => reviewPrescription(r.rxId)}
+                        >
+                          Review
+                        </button>
+                      )}
+                      {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+                        <button
+                          type="button"
+                          disabled={r.status !== 'DRAFT' || !r.reviewedAt}
+                          onClick={() => transitionPrescription(r.rxId, 'ISSUE')}
+                        >
+                          Approve & Issue
+                        </button>
+                      )}
+                      {(currentRole === 'PHARMACIST' || currentRole === 'CLINIC_ADMIN') && (
+                        <button
+                          type="button"
+                          disabled={r.status !== 'ISSUED'}
+                          onClick={() => transitionPrescription(r.rxId, 'DISPENSE')}
+                        >
+                          Dispense
+                        </button>
+                      )}
+                      {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+                        <button
+                          type="button"
+                          disabled={r.status === 'DISPENSED' || r.status === 'VOID'}
+                          onClick={() => transitionPrescription(r.rxId, 'VOID')}
+                        >
+                          Void
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </article>
+          </section>
+        )}
+
+        {tab === 'medicalRecords' && can('VIEW_MEDICAL_RECORDS') && (
+          <section className="grid two">
+            <article className="panel">
+              {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
+                <>
+                  <h2>Medical Record Actions</h2>
+
+                  {can('CREATE_MEDICAL_RECORD') && (
+                    <form onSubmit={createMedicalRecord} className="form-grid top-gap">
+                      <label className="full">
+                        Patient
+                        <select
+                          value={medicalRecordForm.patientId}
+                          onChange={(e) =>
+                            setMedicalRecordForm((f) => ({ ...f, patientId: e.target.value }))
+                          }
+                          required
+                        >
+                          <option value="">Choose patient...</option>
+                          {patientOptions.map((p) => (
+                            <option key={p.userId} value={p.userId}>
+                              {p.email} ({shortId(p.userId)})
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <button type="submit">Create Record</button>
+                    </form>
+                  )}
+
+                  {can('ADD_MEDICAL_NOTE') && (
+                    <form onSubmit={addMedicalRecordNote} className="form-grid top-gap">
+                      <label>
+                        Record ID
+                        <input
+                          value={medicalNoteForm.recordId}
+                          onChange={(e) =>
+                            setMedicalNoteForm((f) => ({ ...f, recordId: e.target.value }))
+                          }
+                          placeholder="Paste record ID"
+                          required
+                        />
+                      </label>
+                      <label>
+                        Note
+                        <input
+                          value={medicalNoteForm.note}
+                          onChange={(e) =>
+                            setMedicalNoteForm((f) => ({ ...f, note: e.target.value }))
+                          }
+                          placeholder="Encounter note"
+                          required
+                        />
+                      </label>
+                      <button type="submit">Add Note</button>
+                    </form>
+                  )}
+                </>
+              )}
+            </article>
+
+            <article className="panel">
+              <h2>Visible Medical Records ({medicalRecordRows.length})</h2>
+              <div className="appointment-list">
+                {medicalRecordRows.map((r) => (
+                  <div className="appointment-card" key={r.recordId}>
+                    <p>
+                      <strong>{shortId(r.recordId)}</strong>
+                      <span className={`status ${r.state.toLowerCase()}`}>{r.state}</span>
+                    </p>
+                    <small>
+                      Record ID: {r.recordId}
+                      <button type="button" onClick={() => copyId('Record ID', r.recordId)}>
+                        Copy ID
                       </button>
+                    </small>
+                    <small>Patient: {r.patientEmail}</small>
+                    <small>Created: {new Date(r.createdAt).toLocaleString()}</small>
+                    <small>Updated: {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '-'}</small>
+                    <small>Archived: {r.archivedAt ? new Date(r.archivedAt).toLocaleString() : '-'}</small>
+                    <small>
+                      Retention Until: {new Date(r.retentionUntilIso).toLocaleDateString()} ({r.retentionEligible ? 'Eligible' : 'Not eligible'})
+                    </small>
+                    <small>Notes: {(r.notes || []).length}</small>
+                    {(r.notes || []).length > 0 && (
+                      <ul className="tag-list">
+                        {(r.notes || []).map((n, idx) => (
+                          <li key={`${r.recordId}-${idx}`}>{n}</li>
+                        ))}
+                      </ul>
                     )}
-                    {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
-                      <button
-                        type="button"
-                        disabled={r.status !== 'DRAFT'}
-                        onClick={() => reviewPrescription(r.rxId)}
-                      >
-                        Review
-                      </button>
-                    )}
-                    {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
-                      <button
-                        type="button"
-                        disabled={r.status !== 'DRAFT' || !r.reviewedAt}
-                        onClick={() => transitionPrescription(r.rxId, 'ISSUE')}
-                      >
-                        Approve & Issue
-                      </button>
-                    )}
-                    {(currentRole === 'PHARMACIST' || currentRole === 'CLINIC_ADMIN') && (
-                      <button
-                        type="button"
-                        disabled={r.status !== 'ISSUED'}
-                        onClick={() => transitionPrescription(r.rxId, 'DISPENSE')}
-                      >
-                        Dispense
-                      </button>
-                    )}
-                    {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
-                      <button
-                        type="button"
-                        disabled={r.status === 'DISPENSED' || r.status === 'VOID'}
-                        onClick={() => transitionPrescription(r.rxId, 'VOID')}
-                      >
-                        Void
-                      </button>
+                    {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && r.state !== 'ARCHIVED' && (
+                      <div className="row-actions">
+                        <input
+                          value={archiveReasonByRecordId[r.recordId] || ''}
+                          onChange={(e) =>
+                            setArchiveReasonByRecordId((prev) => ({
+                              ...prev,
+                              [r.recordId]: e.target.value,
+                            }))
+                          }
+                          placeholder="Archive reason (optional)"
+                        />
+                        <button type="button" onClick={() => archiveMedicalRecord(r.recordId)}>
+                          Archive
+                        </button>
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
-          </article>
-        </section>
-      )}
+                ))}
+              </div>
+            </article>
+          </section>
+        )}
 
-      {tab === 'medicalRecords' && can('VIEW_MEDICAL_RECORDS') && (
-        <section className="grid two">
-          <article className="panel">
-            {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && (
-              <>
-                <h2>Medical Record Actions</h2>
-
-                {can('CREATE_MEDICAL_RECORD') && (
-                  <form onSubmit={createMedicalRecord} className="form-grid top-gap">
-                    <label className="full">
-                      Patient
-                      <select
-                        value={medicalRecordForm.patientId}
-                        onChange={(e) =>
-                          setMedicalRecordForm((f) => ({ ...f, patientId: e.target.value }))
-                        }
-                        required
-                      >
-                        <option value="">Choose patient...</option>
-                        {patientOptions.map((p) => (
-                          <option key={p.userId} value={p.userId}>
-                            {p.email} ({shortId(p.userId)})
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button type="submit">Create Record</button>
-                  </form>
-                )}
-
-                {can('ADD_MEDICAL_NOTE') && (
-                  <form onSubmit={addMedicalRecordNote} className="form-grid top-gap">
-                    <label>
-                      Record ID
-                      <input
-                        value={medicalNoteForm.recordId}
-                        onChange={(e) =>
-                          setMedicalNoteForm((f) => ({ ...f, recordId: e.target.value }))
-                        }
-                        placeholder="Paste record ID"
-                        required
-                      />
-                    </label>
-                    <label>
-                      Note
-                      <input
-                        value={medicalNoteForm.note}
-                        onChange={(e) =>
-                          setMedicalNoteForm((f) => ({ ...f, note: e.target.value }))
-                        }
-                        placeholder="Encounter note"
-                        required
-                      />
-                    </label>
-                    <button type="submit">Add Note</button>
-                  </form>
-                )}
-              </>
-            )}
-          </article>
-
-          <article className="panel">
-            <h2>Visible Medical Records ({medicalRecordRows.length})</h2>
-            <div className="appointment-list">
-              {medicalRecordRows.map((r) => (
-                <div className="appointment-card" key={r.recordId}>
+        {tab === 'notifications' && currentRole && (
+          <section className="panel">
+            <h2>Notification Center ({visibleNotifications.length})</h2>
+            <p className="hint">Delivery lifecycle: PENDING -&gt; SENT or FAILED -&gt; RETRYING -&gt; ABANDONED.</p>
+            <div className="appointment-list top-gap">
+              {visibleNotifications.map((n) => (
+                <div className="appointment-card" key={n.notificationId}>
                   <p>
-                    <strong>{shortId(r.recordId)}</strong>
-                    <span className={`status ${r.state.toLowerCase()}`}>{r.state}</span>
+                    <strong>{shortId(n.notificationId)}</strong>
+                    <span className={`status ${n.status.toLowerCase()}`}>{n.status}</span>
                   </p>
+                  <small>Event: {n.event}</small>
+                  <small>Source: {n.source}</small>
+                  <small>Recipient: {n.recipient || '-'}</small>
+                  <small>Channel: {n.channel}</small>
                   <small>
-                    Record ID: {r.recordId}
-                    <button type="button" onClick={() => copyId('Record ID', r.recordId)}>
-                      Copy ID
-                    </button>
+                    Retry Count: {n.retryCount}/{n.maxRetries}
                   </small>
-                  <small>Patient: {r.patientEmail}</small>
-                  <small>Created: {new Date(r.createdAt).toLocaleString()}</small>
-                  <small>Updated: {r.updatedAt ? new Date(r.updatedAt).toLocaleString() : '-'}</small>
-                  <small>Archived: {r.archivedAt ? new Date(r.archivedAt).toLocaleString() : '-'}</small>
-                  <small>
-                    Retention Until: {new Date(r.retentionUntilIso).toLocaleDateString()} ({r.retentionEligible ? 'Eligible' : 'Not eligible'})
-                  </small>
-                  <small>Notes: {(r.notes || []).length}</small>
-                  {(r.notes || []).length > 0 && (
+                  {n.failureReason ? <small>Failure Reason: {n.failureReason}</small> : null}
+                  <small>Created: {new Date(n.createdAt).toLocaleString()}</small>
+                  <small>Delivered: {n.deliveredAt ? new Date(n.deliveredAt).toLocaleString() : '-'}</small>
+                  {Array.isArray(n.history) && n.history.length > 0 ? (
                     <ul className="tag-list">
-                      {(r.notes || []).map((n, idx) => (
-                        <li key={`${r.recordId}-${idx}`}>{n}</li>
+                      {n.history.map((entry, idx) => (
+                        <li key={`${n.notificationId}-${idx}`}>
+                          <span>
+                            <strong>{entry.status}</strong> at {new Date(entry.timestamp).toLocaleTimeString()}
+                          </span>
+                          <small>{entry.detail}</small>
+                        </li>
                       ))}
                     </ul>
-                  )}
-                  {(currentRole === 'CLINICIAN' || currentRole === 'CLINIC_ADMIN') && r.state !== 'ARCHIVED' && (
-                    <div className="row-actions">
-                      <input
-                        value={archiveReasonByRecordId[r.recordId] || ''}
-                        onChange={(e) =>
-                          setArchiveReasonByRecordId((prev) => ({
-                            ...prev,
-                            [r.recordId]: e.target.value,
-                          }))
-                        }
-                        placeholder="Archive reason (optional)"
-                      />
-                      <button type="button" onClick={() => archiveMedicalRecord(r.recordId)}>
-                        Archive
-                      </button>
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               ))}
+              {visibleNotifications.length === 0 && (
+                <p className="hint">No notifications yet for this role. Issue a prescription or schedule an appointment to generate one.</p>
+              )}
             </div>
-          </article>
-        </section>
-      )}
+          </section>
+        )}
 
-      {tab === 'notifications' && currentRole && (
-        <section className="panel">
-          <h2>Notification Center ({visibleNotifications.length})</h2>
-          <p className="hint">Delivery lifecycle: PENDING -&gt; SENT or FAILED -&gt; RETRYING -&gt; ABANDONED.</p>
-          <div className="appointment-list top-gap">
-            {visibleNotifications.map((n) => (
-              <div className="appointment-card" key={n.notificationId}>
-                <p>
-                  <strong>{shortId(n.notificationId)}</strong>
-                  <span className={`status ${n.status.toLowerCase()}`}>{n.status}</span>
-                </p>
-                <small>Event: {n.event}</small>
-                <small>Source: {n.source}</small>
-                <small>Recipient: {n.recipient || '-'}</small>
-                <small>Channel: {n.channel}</small>
-                <small>
-                  Retry Count: {n.retryCount}/{n.maxRetries}
-                </small>
-                {n.failureReason ? <small>Failure Reason: {n.failureReason}</small> : null}
-                <small>Created: {new Date(n.createdAt).toLocaleString()}</small>
-                <small>Delivered: {n.deliveredAt ? new Date(n.deliveredAt).toLocaleString() : '-'}</small>
-                {Array.isArray(n.history) && n.history.length > 0 ? (
-                  <ul className="tag-list">
-                    {n.history.map((entry, idx) => (
-                      <li key={`${n.notificationId}-${idx}`}>
-                        <span>
-                          <strong>{entry.status}</strong> at {new Date(entry.timestamp).toLocaleTimeString()}
-                        </span>
-                        <small>{entry.detail}</small>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-              </div>
-            ))}
-            {visibleNotifications.length === 0 && (
-              <p className="hint">No notifications yet for this role. Issue a prescription or schedule an appointment to generate one.</p>
-            )}
-          </div>
-        </section>
-      )}
+        {tab === 'audit' && currentRole === 'CLINIC_ADMIN' && (
+          <section className="panel">
+            <h2>Audit Log ({visibleAudit.length})</h2>
+            <div className="scroll-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Timestamp</th>
+                    <th>Action</th>
+                    <th>User</th>
+                    <th>Appointment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleAudit.map((a) => {
+                    const u = a.userId ? usersById.get(a.userId) : null
+                    return (
+                      <tr key={a.id}>
+                        <td>{new Date(a.timestamp).toLocaleString()}</td>
+                        <td>{a.action}</td>
+                        <td>{u ? `${u.email} (${a.userId.slice(0, 8)}...)` : '-'}</td>
+                        <td>{a.appointmentId ? shortId(a.appointmentId) : '-'}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
-      {tab === 'audit' && currentRole === 'CLINIC_ADMIN' && (
-        <section className="panel">
-          <h2>Audit Log ({visibleAudit.length})</h2>
-          <div className="scroll-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Timestamp</th>
-                  <th>Action</th>
-                  <th>User</th>
-                  <th>Appointment</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleAudit.map((a) => {
-                  const u = a.userId ? usersById.get(a.userId) : null
-                  return (
-                    <tr key={a.id}>
-                      <td>{new Date(a.timestamp).toLocaleString()}</td>
-                      <td>{a.action}</td>
-                      <td>{u ? `${u.email} (${a.userId.slice(0, 8)}...)` : '-'}</td>
-                      <td>{a.appointmentId ? shortId(a.appointmentId) : '-'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      <footer className="footnote">
-        Role-based visibility is enforced in both navigation and action handlers.
-      </footer>
+        <footer className="footnote">
+          Role-based visibility is enforced in both navigation and action handlers.
+        </footer>
       </div>
     </div>
   )
