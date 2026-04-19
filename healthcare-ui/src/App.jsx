@@ -19,10 +19,10 @@ const DRUG_RULES = DRUG_CATALOG.reduce((acc, drug) => {
 
 const ROLE_TABS = {
   PATIENT: ['profile', 'appointments', 'prescriptions', 'medicalRecords'],
-  RECEPTIONIST: ['patients', 'appointments', 'medicalRecords'],
-  CLINICIAN: ['appointments', 'prescriptions', 'medicalRecords'],
-  PHARMACIST: ['prescriptions'],
-  CLINIC_ADMIN: ['users', 'patients', 'appointments', 'prescriptions', 'medicalRecords', 'audit'],
+  RECEPTIONIST: ['profile', 'patients', 'appointments', 'medicalRecords'],
+  CLINICIAN: ['profile', 'appointments', 'prescriptions', 'medicalRecords'],
+  PHARMACIST: ['profile', 'prescriptions'],
+  CLINIC_ADMIN: ['profile', 'users', 'patients', 'appointments', 'prescriptions', 'medicalRecords', 'audit'],
 }
 
 const TAB_LABELS = {
@@ -351,6 +351,18 @@ function App() {
     dob: '',
     insuranceId: '',
     allergies: '',
+  })
+
+  const [userProfileEdit, setUserProfileEdit] = useState({
+    email: '',
+    password: '',
+    staffId: '',
+    shift: '',
+    licenceNo: '',
+    speciality: '',
+    regNo: '',
+    pharmacy: '',
+    adminLevel: '',
   })
 
   const [userCreateForm, setUserCreateForm] = useState({
@@ -802,6 +814,70 @@ function App() {
     if (!selectedPatientId) return null
     return db.patients.find((p) => p.userId === selectedPatientId) || null
   }, [db.patients, selectedPatientId, currentRole])
+
+  useEffect(() => {
+    if (!currentUser) return
+    setUserProfileEdit({
+      email: currentUser.email || '',
+      password: '',
+      staffId: currentUser.staffId || '',
+      shift: currentUser.shift || '',
+      licenceNo: currentUser.licenceNo || '',
+      speciality: currentUser.speciality || '',
+      regNo: currentUser.regNo || '',
+      pharmacy: currentUser.pharmacy || '',
+      adminLevel: currentUser.adminLevel || '',
+    })
+  }, [currentUser])
+
+  function saveOwnUserProfile(event) {
+    event.preventDefault()
+    if (!currentUser) {
+      notify('error', 'Please login first.')
+      return
+    }
+
+    const email = userProfileEdit.email.trim().toLowerCase()
+    if (!email) {
+      notify('error', 'Email is required.')
+      return
+    }
+
+    const emailTakenByAnother = db.users.some(
+      (u) => u.userId !== currentUserId && u.email.toLowerCase() === email,
+    )
+    if (emailTakenByAnother) {
+      notify('error', 'Email already in use by another user.')
+      return
+    }
+
+    write((next) => {
+      const user = next.users.find((u) => u.userId === currentUserId)
+      if (!user) throw new Error('User not found.')
+
+      user.email = email
+      if (userProfileEdit.password.trim()) {
+        user.passwordHash = hashPassword(userProfileEdit.password.trim())
+      }
+
+      if (user.role === 'RECEPTIONIST') {
+        user.staffId = userProfileEdit.staffId || null
+        user.shift = userProfileEdit.shift || null
+      } else if (user.role === 'CLINICIAN') {
+        user.licenceNo = userProfileEdit.licenceNo || null
+        user.speciality = userProfileEdit.speciality || null
+      } else if (user.role === 'PHARMACIST') {
+        user.regNo = userProfileEdit.regNo || null
+        user.pharmacy = userProfileEdit.pharmacy || null
+      } else if (user.role === 'CLINIC_ADMIN') {
+        user.adminLevel = userProfileEdit.adminLevel || null
+      }
+
+      addAudit(next, `UPDATE_PROFILE:${currentUserId}`, currentUserId)
+    }, 'Profile updated.')
+
+    setUserProfileEdit((prev) => ({ ...prev, password: '' }))
+  }
 
   useEffect(() => {
     if (currentRole === 'PATIENT') {
@@ -1480,41 +1556,139 @@ function App() {
         </section>
       )}
 
-      {tab === 'profile' && currentRole === 'PATIENT' && (
+      {tab === 'profile' && currentRole && (
         <section className="panel">
-          <h2>My Patient Profile</h2>
-          {ownPatient ? (
-            <form onSubmit={savePatientProfile} className="form-grid top-gap">
+          <h2>My Profile</h2>
+          <form onSubmit={saveOwnUserProfile} className="form-grid top-gap">
+            <label>
+              User ID
+              <input value={currentUser?.userId || ''} readOnly />
+            </label>
+            <label>
+              Email
+              <input
+                type="email"
+                value={userProfileEdit.email}
+                onChange={(e) => setUserProfileEdit((p) => ({ ...p, email: e.target.value }))}
+                required
+              />
+            </label>
+            <label className="full">
+              New Password (optional)
+              <input
+                type="password"
+                value={userProfileEdit.password}
+                onChange={(e) => setUserProfileEdit((p) => ({ ...p, password: e.target.value }))}
+              />
+            </label>
+
+            {currentRole === 'RECEPTIONIST' && (
+              <>
+                <label>
+                  Staff ID
+                  <input
+                    value={userProfileEdit.staffId}
+                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, staffId: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Shift
+                  <input
+                    value={userProfileEdit.shift}
+                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, shift: e.target.value }))}
+                  />
+                </label>
+              </>
+            )}
+
+            {currentRole === 'CLINICIAN' && (
+              <>
+                <label>
+                  Licence No
+                  <input
+                    value={userProfileEdit.licenceNo}
+                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, licenceNo: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Speciality
+                  <input
+                    value={userProfileEdit.speciality}
+                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, speciality: e.target.value }))}
+                  />
+                </label>
+              </>
+            )}
+
+            {currentRole === 'PHARMACIST' && (
+              <>
+                <label>
+                  Registration No
+                  <input
+                    value={userProfileEdit.regNo}
+                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, regNo: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  Pharmacy
+                  <input
+                    value={userProfileEdit.pharmacy}
+                    onChange={(e) => setUserProfileEdit((p) => ({ ...p, pharmacy: e.target.value }))}
+                  />
+                </label>
+              </>
+            )}
+
+            {currentRole === 'CLINIC_ADMIN' && (
               <label>
-                Patient ID
-                <input value={ownPatient.userId} readOnly />
-              </label>
-              <label>
-                DOB
+                Admin Level
                 <input
-                  type="date"
-                  value={patientEdit.dob}
-                  onChange={(e) => setPatientEdit((p) => ({ ...p, dob: e.target.value }))}
+                  value={userProfileEdit.adminLevel}
+                  onChange={(e) => setUserProfileEdit((p) => ({ ...p, adminLevel: e.target.value }))}
                 />
               </label>
-              <label>
-                Insurance ID
-                <input
-                  value={patientEdit.insuranceId}
-                  onChange={(e) => setPatientEdit((p) => ({ ...p, insuranceId: e.target.value }))}
-                />
-              </label>
-              <label className="full">
-                Allergies
-                <input
-                  value={patientEdit.allergies}
-                  onChange={(e) => setPatientEdit((p) => ({ ...p, allergies: e.target.value }))}
-                />
-              </label>
-              <button type="submit">Save My Profile</button>
-            </form>
-          ) : (
-            <p className="hint">No patient profile is mapped to this user.</p>
+            )}
+
+            <button type="submit">Save Account Profile</button>
+          </form>
+
+          {currentRole === 'PATIENT' && (
+            <>
+              <h3>Patient Details</h3>
+              {ownPatient ? (
+                <form onSubmit={savePatientProfile} className="form-grid top-gap">
+                  <label>
+                    Patient ID
+                    <input value={ownPatient.userId} readOnly />
+                  </label>
+                  <label>
+                    DOB
+                    <input
+                      type="date"
+                      value={patientEdit.dob}
+                      onChange={(e) => setPatientEdit((p) => ({ ...p, dob: e.target.value }))}
+                    />
+                  </label>
+                  <label>
+                    Insurance ID
+                    <input
+                      value={patientEdit.insuranceId}
+                      onChange={(e) => setPatientEdit((p) => ({ ...p, insuranceId: e.target.value }))}
+                    />
+                  </label>
+                  <label className="full">
+                    Allergies
+                    <input
+                      value={patientEdit.allergies}
+                      onChange={(e) => setPatientEdit((p) => ({ ...p, allergies: e.target.value }))}
+                    />
+                  </label>
+                  <button type="submit">Save Patient Details</button>
+                </form>
+              ) : (
+                <p className="hint">No patient profile is mapped to this user.</p>
+              )}
+            </>
           )}
         </section>
       )}
