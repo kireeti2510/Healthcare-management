@@ -18,11 +18,11 @@ const DRUG_RULES = DRUG_CATALOG.reduce((acc, drug) => {
 }, {})
 
 const ROLE_TABS = {
-  PATIENT: ['profile', 'appointments', 'prescriptions', 'medicalRecords'],
-  RECEPTIONIST: ['patients', 'appointments', 'medicalRecords'],
-  CLINICIAN: ['appointments', 'prescriptions', 'medicalRecords'],
-  PHARMACIST: ['prescriptions'],
-  CLINIC_ADMIN: ['users', 'patients', 'appointments', 'prescriptions', 'medicalRecords', 'audit'],
+  PATIENT: ['profile', 'appointments', 'prescriptions', 'medicalRecords', 'notifications'],
+  RECEPTIONIST: ['patients', 'appointments', 'medicalRecords', 'notifications'],
+  CLINICIAN: ['appointments', 'prescriptions', 'medicalRecords', 'notifications'],
+  PHARMACIST: ['prescriptions', 'notifications'],
+  CLINIC_ADMIN: ['users', 'patients', 'appointments', 'prescriptions', 'medicalRecords', 'notifications', 'audit'],
 }
 
 const TAB_LABELS = {
@@ -33,6 +33,7 @@ const TAB_LABELS = {
   appointments: 'Appointments',
   prescriptions: 'Prescriptions',
   medicalRecords: 'Medical Records',
+  notifications: 'Notifications',
   audit: 'Audit',
 }
 
@@ -43,6 +44,7 @@ const initialDb = {
   waitlist: [],
   prescriptions: [],
   medicalRecords: [],
+  notifications: [],
   audit: [],
 }
 
@@ -154,6 +156,96 @@ function addAudit(db, action, userId = null, appointmentId = null) {
     appointmentId,
     timestamp: nowStamp(),
   })
+}
+
+function resolveNotificationChannel(recipient) {
+  if (!recipient || !recipient.toString().trim()) return 'NONE'
+  return recipient.includes('@') ? 'EMAIL' : 'SMS'
+}
+
+function enqueueNotification(
+  db,
+  { event, recipient, userId = null, appointmentId = null, maxRetries = 3, source = 'SYSTEM' },
+) {
+  const createdAt = nowStamp()
+  const safeRecipient = recipient?.toString().trim() || ''
+  const channel = resolveNotificationChannel(safeRecipient)
+  const history = [
+    {
+      status: 'PENDING',
+      timestamp: createdAt,
+      detail: `Queued from ${source}`,
+    },
+  ]
+
+  let status = 'PENDING'
+  let retryCount = 0
+  let failureReason = null
+  let deliveredAt = null
+
+  if (channel === 'NONE') {
+    while (retryCount < maxRetries) {
+      retryCount += 1
+      failureReason = 'No valid recipient/channel available.'
+      status = 'FAILED'
+      history.push({
+        status: 'FAILED',
+        timestamp: nowStamp(),
+        detail: `${failureReason} Attempt ${retryCount}.`,
+      })
+
+      if (retryCount < maxRetries) {
+        status = 'RETRYING'
+        history.push({
+          status: 'RETRYING',
+          timestamp: nowStamp(),
+          detail: `Retry ${retryCount + 1} queued after backoff.`,
+        })
+      }
+    }
+
+    status = 'ABANDONED'
+    history.push({
+      status: 'ABANDONED',
+      timestamp: nowStamp(),
+      detail: `Stopped after ${retryCount} failed attempt(s).`,
+    })
+  } else {
+    status = 'SENT'
+    deliveredAt = nowStamp()
+    history.push({
+      status: 'SENT',
+      timestamp: deliveredAt,
+      detail: `Delivered via ${channel}.`,
+    })
+  }
+
+  const row = {
+    notificationId: uid(),
+    event,
+    source,
+    recipient: safeRecipient || null,
+    channel,
+    status,
+    retryCount,
+    maxRetries,
+    failureReason,
+    createdAt,
+    deliveredAt,
+    userId,
+    appointmentId,
+    history,
+  }
+
+  db.notifications.unshift(row)
+  addAudit(
+    db,
+    `NOTIFICATION:${status}:${event}:${safeRecipient || 'NO_RECIPIENT'}`,
+    userId,
+    appointmentId,
+  )
+
+  return row
 }
 
 function seedDb(db) {
@@ -319,6 +411,7 @@ function loadDb() {
       waitlist: parsed.waitlist || [],
       prescriptions: parsed.prescriptions || [],
       medicalRecords: parsed.medicalRecords || [],
+      notifications: parsed.notifications || [],
       audit: parsed.audit || [],
     }
     return seedDb(hydrated)
@@ -967,6 +1060,14 @@ function App() {
       if (!prerequisitesMet && overrideMissingPrerequisites) {
         addAudit(next, `SCHEDULE_OVERRIDE:${appointmentId}:${overrideReason}`, currentUserId, appointmentId)
       }
+      const patientEmail = next.users.find((u) => u.userId === patientId)?.email || null
+      enqueueNotification(next, {
+        event: `APPOINTMENT_SCHEDULED:${appointmentId}`,
+        recipient: patientEmail,
+        userId: currentUserId,
+        appointmentId,
+        source: 'APPOINTMENT',
+      })
     }, 'Appointment scheduled.')
 
     setUnavailableRequest(null)
@@ -1001,6 +1102,13 @@ function App() {
         reasonForVisit: unavailableRequest.reasonForVisit,
       })
       addAudit(next, `JOIN_WAITLIST:${waitlistId}`, currentUserId)
+      const patientEmail = next.users.find((u) => u.userId === unavailableRequest.patientId)?.email || null
+      enqueueNotification(next, {
+        event: `WAITLIST_JOINED:${waitlistId}`,
+        recipient: patientEmail,
+        userId: currentUserId,
+        source: 'WAITLIST',
+      })
     }, 'Joined waitlist. Confirmation sent (no PHI).')
 
     setUnavailableRequest(null)
@@ -1023,6 +1131,14 @@ function App() {
       }
       appt.status = 'CANCELLED'
       addAudit(next, `CANCEL_APPOINTMENT:${appointmentId}`, currentUserId)
+      const patientEmail = next.users.find((u) => u.userId === appt.patientId)?.email || null
+      enqueueNotification(next, {
+        event: `APPOINTMENT_CANCELLED:${appointmentId}`,
+        recipient: patientEmail,
+        userId: currentUserId,
+        appointmentId,
+        source: 'APPOINTMENT',
+      })
     }, 'Appointment cancelled.')
   }
 
@@ -1195,8 +1311,15 @@ function App() {
         addAudit(next, `PRESCRIPTION_EVENT:ISSUED:${rxId}`, currentUserId)
         addAudit(next, `COMPLETE_APPOINTMENT:${appt.appointmentId}`, currentUserId)
         const pharmacistContact = rx.pharmacistContact || 'pharmacist@clinic.com'
-        addAudit(next, `NOTIFY_PHARMACIST:${rxId}:${pharmacistContact}`, currentUserId)
-        actionMessage = `Prescription issued and pharmacist notified (${pharmacistContact}).`
+        const delivery = enqueueNotification(next, {
+          event: `PRESCRIPTION_ISSUED:${rxId}`,
+          recipient: pharmacistContact,
+          userId: currentUserId,
+          appointmentId: appt.appointmentId,
+          source: 'PRESCRIPTION',
+        })
+        addAudit(next, `NOTIFY_PHARMACIST:${rxId}:${delivery.status}`, currentUserId)
+        actionMessage = `Prescription issued. Notification ${delivery.status.toLowerCase()} (${pharmacistContact}).`
         return
       }
 
@@ -1350,6 +1473,23 @@ function App() {
     if (currentUserId) return db.audit.filter((a) => a.userId === currentUserId)
     return []
   }, [db.audit, currentRole, currentUserId])
+
+  const visibleNotifications = useMemo(() => {
+    if (!currentRole) return []
+    if (currentRole === 'CLINIC_ADMIN') return db.notifications
+
+    const currentEmail = normalizeToken(currentUser?.email)
+    return db.notifications.filter((n) => {
+      const recipient = normalizeToken(n.recipient)
+      if (recipient && (recipient === currentEmail || recipient === normalizeToken(currentUserId))) {
+        return true
+      }
+      if (currentRole === 'PHARMACIST' && recipient.includes('pharmacist')) {
+        return true
+      }
+      return n.userId === currentUserId
+    })
+  }, [db.notifications, currentRole, currentUser, currentUserId])
 
   return (
     <div className="scene">
@@ -2261,6 +2401,48 @@ function App() {
               ))}
             </div>
           </article>
+        </section>
+      )}
+
+      {tab === 'notifications' && currentRole && (
+        <section className="panel">
+          <h2>Notification Center ({visibleNotifications.length})</h2>
+          <p className="hint">Delivery lifecycle: PENDING -&gt; SENT or FAILED -&gt; RETRYING -&gt; ABANDONED.</p>
+          <div className="appointment-list top-gap">
+            {visibleNotifications.map((n) => (
+              <div className="appointment-card" key={n.notificationId}>
+                <p>
+                  <strong>{shortId(n.notificationId)}</strong>
+                  <span className={`status ${n.status.toLowerCase()}`}>{n.status}</span>
+                </p>
+                <small>Event: {n.event}</small>
+                <small>Source: {n.source}</small>
+                <small>Recipient: {n.recipient || '-'}</small>
+                <small>Channel: {n.channel}</small>
+                <small>
+                  Retry Count: {n.retryCount}/{n.maxRetries}
+                </small>
+                {n.failureReason ? <small>Failure Reason: {n.failureReason}</small> : null}
+                <small>Created: {new Date(n.createdAt).toLocaleString()}</small>
+                <small>Delivered: {n.deliveredAt ? new Date(n.deliveredAt).toLocaleString() : '-'}</small>
+                {Array.isArray(n.history) && n.history.length > 0 ? (
+                  <ul className="tag-list">
+                    {n.history.map((entry, idx) => (
+                      <li key={`${n.notificationId}-${idx}`}>
+                        <span>
+                          <strong>{entry.status}</strong> at {new Date(entry.timestamp).toLocaleTimeString()}
+                        </span>
+                        <small>{entry.detail}</small>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            ))}
+            {visibleNotifications.length === 0 && (
+              <p className="hint">No notifications yet for this role. Issue a prescription or schedule an appointment to generate one.</p>
+            )}
+          </div>
         </section>
       )}
 

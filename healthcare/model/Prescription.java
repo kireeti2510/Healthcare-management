@@ -48,4 +48,7 @@ public class Prescription {
     public void setStatus(RxStatus status) { this.status = status; }
     public void setIssuedAt(LocalDateTime issuedAt) { this.issuedAt = issuedAt; }
     public void setOverrideReason(String r) { this.overrideReason = r; }
+    public void setItems(List<PrescriptionItem> items) {
+        this.items = items != null ? new ArrayList<>(items) : new ArrayList<>();
+    }
 }

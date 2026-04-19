@@ -117,6 +117,8 @@ public class Main {
 
         // Create and check prescription (Chain of Responsibility)
         Prescription rx = rxCtrl.createPrescription(appt);
+        Drug amoxicillin = new Drug("DRUG-AMOX-500", "Amoxicillin 500mg", List.of("penicillin"));
+        rxCtrl.addPrescriptionItem(rx.getRxId(), new PrescriptionItem(amoxicillin, "500mg", "BID", 5));
         view.showMessage("Prescription status before issue: " + rx.getStatus());
         ConflictResult cr = rxCtrl.checkConflicts(rx.getRxId());
         view.showConflict(cr);

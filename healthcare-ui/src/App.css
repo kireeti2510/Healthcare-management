@@ -454,10 +454,24 @@ td button {
 }
 
 .status.completed,
-.status.dispensed {
+.status.dispensed,
+.status.sent {
   background: #e7f9eb;
   color: #1f7032;
   border-color: #bde3c4;
+}
+
+.status.failed,
+.status.abandoned {
+  background: #ffeceb;
+  color: #8c2617;
+  border-color: #f2beb6;
+}
+
+.status.retrying {
+  background: #fff6df;
+  color: #7f5a06;
+  border-color: #ebd29a;
 }
 
 .status.updated {
