@@ -82,6 +82,23 @@ public class PrescriptionServiceImpl implements IPrescriptionService {
     }
 
     @Override
+    public void dispenseRx(UUID rxId) {
+        Prescription rx = getPrescriptionOrThrow(rxId);
+        rx.dispense();
+        repo.update(rx);
+        auditLog.log("DISPENSE_PRESCRIPTION:" + rxId, null);
+    }
+
+    @Override
+    public void voidRx(UUID rxId, String reason) {
+        Prescription rx = getPrescriptionOrThrow(rxId);
+        rx.voidPrescription();
+        repo.update(rx);
+        String safeReason = reason != null && !reason.isBlank() ? reason.trim() : "NONE";
+        auditLog.log("VOID_PRESCRIPTION:" + rxId + ":" + safeReason, null);
+    }
+
+    @Override
     public ConflictResult checkConflicts(UUID rxId) {
         Prescription rx = getPrescriptionOrThrow(rxId);
         return checkConflicts(rx);

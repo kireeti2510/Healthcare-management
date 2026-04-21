@@ -27,6 +27,14 @@ public class PrescriptionController {
         service.issueRx(rxId, pharmacistContact, overrideReason);
     }
 
+    public void dispensePrescription(UUID rxId) {
+        service.dispenseRx(rxId);
+    }
+
+    public void voidPrescription(UUID rxId, String reason) {
+        service.voidRx(rxId, reason);
+    }
+
     public ConflictResult reviewPrescription(UUID rxId, String overrideReason) {
         return service.reviewRx(rxId, overrideReason);
     }

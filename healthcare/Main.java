@@ -128,6 +128,16 @@ public class Main {
         Prescription updatedRx = rxRepo.findById(rx.getRxId())
                 .orElseThrow(() -> new RuntimeException("Prescription not found after issue: " + rx.getRxId()));
         view.showMessage("Prescription status after issue: " + updatedRx.getStatus());
+        rxCtrl.dispensePrescription(rx.getRxId());
+        Prescription dispensedRx = rxRepo.findById(rx.getRxId())
+                .orElseThrow(() -> new RuntimeException("Prescription not found after dispense: " + rx.getRxId()));
+        view.showMessage("Prescription status after dispense: " + dispensedRx.getStatus());
+
+        Prescription rxToVoid = rxCtrl.createPrescription(apptToCancel);
+        rxCtrl.voidPrescription(rxToVoid.getRxId(), "Patient declined medication");
+        Prescription voidedRx = rxRepo.findById(rxToVoid.getRxId())
+                .orElseThrow(() -> new RuntimeException("Prescription not found after void: " + rxToVoid.getRxId()));
+        view.showMessage("Prescription status after void: " + voidedRx.getStatus());
         Appointment completedFromIssue = apptRepo.findById(appt.getAppointmentId())
                 .orElseThrow(() -> new RuntimeException("Appointment not found after RX issue: " + appt.getAppointmentId()));
         view.showMessage("Appointment status after RX issue: " + completedFromIssue.getStatus());
